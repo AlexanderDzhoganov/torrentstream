@@ -4,6 +4,8 @@
 namespace TorrentStream
 {
 
+	class InvalidInfoSection : public std::exception {};
+	
 	class MetadataFile
 	{
 
@@ -19,9 +21,23 @@ namespace TorrentStream
 
 		std::string GetAnnounceURL();
 
+		size_t GetPieceLength();
+
+		size_t GetPieceCount();
+
+		size_t GetTotalSize();
+
+		size_t GetFilesCount();
+
+		std::vector<char> GetPieceHash(size_t index);
+
+		std::string GetFileName(size_t index);
+
 		void PrintInfo();
 
 		private:
+		Bencode::Dictionary* GetInfoSection();
+
 		std::unique_ptr<Bencode::Dictionary> m_Contents;
 
 	};

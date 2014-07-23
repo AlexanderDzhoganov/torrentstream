@@ -128,14 +128,9 @@ namespace TorrentStream
 			return true;
 		}
 
-		int Socket::Receive(std::vector<char>& data, int size)
+		int Socket::Receive(void* data, int size)
 		{
-			if (data.size() < size)
-			{
-				data.resize(size);
-			}
-
-			auto result = recv(m_Impl->m_Socket, data.data(), size, 0);
+			auto result = recv(m_Impl->m_Socket, (char*)data, size, 0);
 			if (result <= 0)
 			{
 				if (result < 0)
@@ -147,8 +142,26 @@ namespace TorrentStream
 				return false;
 			}
 
+			return result;
+		}
+
+		int Socket::Receive(std::vector<char>& data, int size)
+		{
+			if ((int)data.size() < size)
+			{
+				data.resize(size);
+			}
+
+			auto result = Receive((void*)data.data(), size);
+
 			data.resize(result);
 			return result;
+		}
+
+		int Socket::Receive(std::string& data, int size)
+		{
+			data.resize(size);
+			return Receive((void*)data.c_str(), size);
 		}
 
 	}

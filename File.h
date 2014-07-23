@@ -16,6 +16,8 @@ namespace TorrentStream
 
 		std::string filename;
 
+		std::unique_ptr<Filesystem::File> handle;
+
 	};
 
 }

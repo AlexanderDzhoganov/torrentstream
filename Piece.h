@@ -8,7 +8,7 @@ namespace TorrentStream
 	{
 
 		public:
-		Piece(size_t size, const std::string& hash) : m_Size(size), m_Hash(hash) {}
+		Piece(size_t size, const std::vector<char>& hash) : m_Size(size), m_Hash(hash) {}
 
 		void SubmitData(const std::vector<char>& data)
 		{
@@ -43,7 +43,7 @@ namespace TorrentStream
 
 		private:
 		size_t m_Size = 0;
-		std::string m_Hash;
+		std::vector<char> m_Hash;
 
 		size_t m_DataPtr = 0;
 		std::vector<char> m_Data;

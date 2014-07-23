@@ -9,6 +9,7 @@
 #include <fstream>
 #include <assert.h>
 
+#include "Filesystem.h"
 #include "StringFacility.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
@@ -18,7 +19,7 @@
 #include "Peer.h"
 #include "Piece.h"
 #include "File.h"
-#include "Tracker.h"
+#include "Client.h"
 
 using namespace TorrentStream;
 
@@ -36,7 +37,7 @@ int main()
 
 	metadata->PrintInfo();
 
-	Client client(metadata);
+	Client client(metadata, "C:\\dev\\ts\\test\\");
 
 	client.Start();
 	client.Stop();

@@ -44,18 +44,28 @@ namespace TorrentStream
 		void RunThread();
 
 		void SendHandshake();
-		void ReceiveHandshake();
+		void SendInterested();
 
+		void ReceiveHandshake();
 		void ReceiveMessage();
+
+		void OnKeepAlive();
+		void OnChoke();
+		void OnUnchoke();
+		void OnInterested();
+		void OnNotInterested();
+		void OnHave();
+		void OnBitfield(size_t len);
+		void OnRequest();
+		void OnPiece(size_t len);
+		void OnCancel();
+		void OnPort();
 
 		Client* m_Client;
 
 		std::string m_IP;
 		int m_Port;
 		std::string m_ID;
-
-		bool m_PeerChoked = true;
-		bool m_PeerInterested = false;
 
 		bool m_Choked = true;
 		bool m_Interested = false;

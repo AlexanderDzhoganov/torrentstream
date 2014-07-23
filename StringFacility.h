@@ -1,8 +1,33 @@
 #ifndef __TORRENTSTREAM_STRINGFACILITY_H
 #define __TORRENTSTREAM_STRINGFACILITY_H
 
+#include <iomanip>
+
 namespace TorrentStream
 {
+	inline std::string url_encode(unsigned char* data)
+	{
+		std::ostringstream escaped;
+		escaped.fill('0');
+		escaped << std::hex;
+
+		for (auto i = 0u; i < 20; i++)
+		{
+			unsigned char c = data[i];
+
+			// Keep alphanumeric and other accepted characters intact
+			if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+			{
+				escaped << c;
+				continue;
+			}
+
+			// Any other characters are percent-encoded
+			escaped << '%' << std::setw(2) << int((unsigned char)c);
+		}
+
+		return escaped.str();
+	}
 
 	static inline std::vector<std::string> split(const std::string &s, char delim)
 	{

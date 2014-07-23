@@ -19,7 +19,18 @@ namespace TorrentStream
 			bool IsOpen();
 
 			bool Send(const std::vector<char>& data);
+
+			int Receive(void* data, int size);
+
 			int Receive(std::vector<char>& data, int size);
+
+			template <typename T>
+			inline int Receive(T& data)
+			{
+				return Receive((void*)&data, sizeof(T));
+			}
+
+			int Receive(std::string& data, int size);
 
 			private:
 			SocketImpl* m_Impl;

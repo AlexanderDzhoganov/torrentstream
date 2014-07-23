@@ -8,9 +8,14 @@
 #include <memory>
 #include <thread>
 #include <mutex>
+#include <intrin.h>
 
+#include "Filesystem.h"
 #include "StringFacility.h"
+#include "BinaryString.h"
+
 #include "Socket.h"
+#include "Wire.h"
 #include "HTTP.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
@@ -18,7 +23,7 @@
 #include "Peer.h"
 #include "Piece.h"
 #include "File.h"
-#include "Tracker.h"
+#include "Client.h"
 
 namespace TorrentStream
 {
@@ -60,92 +65,171 @@ namespace TorrentStream
 
 	void Peer::SendHandshake()
 	{
-		std::vector<char> handshake;
-		handshake.push_back(19);
+		Wire::SendHandshake(m_Socket, m_Client->m_InfoHash, m_Client->m_PeerID);
+	}
 
-		std::string proto = "BitTorrent protocol";
-		for (auto c : proto)
-		{
-			handshake.push_back(c);
-		}
-
-		for (auto i = 0u; i < 8; i++)
-		{
-			handshake.push_back(0);
-		}
-
-		for (auto c : m_Client->m_InfoHash)
-		{
-			handshake.push_back(c);
-		}
-
-		for (auto c : m_Client->m_PeerID)
-		{
-			handshake.push_back(c);
-		}
-
-		m_Socket->Send(handshake);
+	void Peer::SendInterested()
+	{
+		Wire::SendInterested(m_Socket);
 	}
 
 	void Peer::ReceiveHandshake()
 	{
-		std::vector<char> msgLenBytes;
-		auto recvd = m_Socket->Receive(msgLenBytes, 1);
+		std::string infoHash;
+		std::string peerId;
 
-		if (recvd <= 0)
+		try
 		{
+			Wire::ReceiveHandshake(m_Socket, infoHash, peerId);
+		}
+		catch (const std::exception& e)
+		{
+			std::cout << "Exception in ReceiveHandshake, closing connection.." << std::endl;
 			m_Socket = nullptr;
 			return;
 		}
 
-		char msgLen = msgLenBytes[0];
-		std::vector<char> pstr;
-
-		recvd = m_Socket->Receive(pstr, msgLen);
-		if (recvd != msgLen)
-		{
-			std::cout << "bad handshake" << std::endl;
-			m_Socket = nullptr;
-			return;
-		}
-
-		std::string pstrString(pstr.data(), pstr.size());
-		
-		std::vector<char> reserved;
-		recvd = m_Socket->Receive(reserved, 8);
-
-		std::vector<char> infoHash;
-		recvd = m_Socket->Receive(infoHash, 20);
-
-		if (m_Client->m_InfoHash != std::string(infoHash.data(), infoHash.size()))
+		if (m_Client->m_InfoHash != infoHash)
 		{
 			std::cout << "wrong info_hash, bad handshake" << std::endl;
 			m_Socket = nullptr;
 			return;
 		}
 
-		std::vector<char> peerId;
-		recvd = m_Socket->Receive(peerId, 20);
-		std::cout << "got peer id: " << std::string(peerId.data(), peerId.size()) << std::endl;
-		std::cout << "handshake complete" << std::endl;
+		std::cout << "handshake complete, got peer id: " << peerId << std::endl;
+
+		SendInterested();
 	}
 
 	void Peer::ReceiveMessage()
 	{
-		std::vector<char> msgLengthBytes;
-		auto recvd = m_Socket->Receive(msgLengthBytes, 4);
-
-		if (recvd <= 0)
+		unsigned int len = 0;
+		Wire::PeerMessageID id;
+		
+		try
 		{
+			id = Wire::ReceiveMessageHeader(m_Socket, len);
+		}
+		catch (const std::exception& e)
+		{
+			std::cout << "Exception in ReceiveMessageHeader, closing connection.." << std::endl;
 			m_Socket = nullptr;
 			return;
 		}
 
-		//std::reverse(msgLengthBytes.begin(), msgLengthBytes.end());
+		switch (id)
+		{
+		case Wire::PeerMessageID::Choke:
+			OnChoke();
+			break;
+		case Wire::PeerMessageID::Unchoke:
+			OnUnchoke();
+			break;
+		case Wire::PeerMessageID::Interested:
+			OnInterested();
+			break;
+		case Wire::PeerMessageID::NotInterested:
+			OnNotInterested();
+			break;
+		case Wire::PeerMessageID::Have:
+			OnHave();
+			break;
+		case Wire::PeerMessageID::Bitfield:
+			OnBitfield(len);
+			break;
+		case Wire::PeerMessageID::Request:
+			OnRequest();
+			break;
+		case Wire::PeerMessageID::Piece:
+			OnPiece(len);
+			break;
+		case Wire::PeerMessageID::Cancel:
+			OnCancel();
+			break;
+		case Wire::PeerMessageID::Port:
+			OnPort();
+			break;
+		default:
+			break;
+		}
+	}
 
-		int msgLength = *((int*)msgLengthBytes.data());
-		//std::cout << "len " << msgLength << std::endl;
+	void Peer::OnKeepAlive()
+	{
+	}
 
+	void Peer::OnChoke()
+	{
+		m_Choked = true;
+	}
+
+	void Peer::OnUnchoke()
+	{
+		m_Choked = false;
+	}
+
+	void Peer::OnInterested()
+	{
+		m_Interested = true;
+	}
+
+	void Peer::OnNotInterested()
+	{
+		m_Interested = false;
+	}
+
+	void Peer::OnHave()
+	{
+		unsigned int piece;
+		m_Socket->Receive(piece);
+		piece = ByteSwap(piece);
+		std::cout << "have: " << piece << std::endl;
+	}
+
+	void Peer::OnBitfield(size_t len)
+	{
+		std::vector<char> bitfield;
+		m_Socket->Receive(bitfield, len - 1);
+
+		std::cout << "bitfield: " << len << std::endl;
+	}
+
+	void Peer::OnRequest()
+	{
+		unsigned int index;
+		m_Socket->Receive(index);
+		index = ByteSwap(index);
+
+		unsigned int begin;
+		m_Socket->Receive(begin);
+		begin = ByteSwap(begin);
+
+		unsigned int len;
+		m_Socket->Receive(len);
+		len = ByteSwap(len);
+
+		std::cout << "request" << std::endl;
+	}
+
+	void Peer::OnPiece(size_t len)
+	{
+		std::vector<char> payload;
+		m_Socket->Receive(payload, len - 1);
+		std::cout << "piece" << std::endl;
+	}
+
+	void Peer::OnCancel()
+	{
+		std::vector<char> payload;
+		m_Socket->Receive(payload, 12);
+		std::cout << "cancel" << std::endl;
+	}
+
+	void Peer::OnPort()
+	{
+		std::vector<char> payload;
+		m_Socket->Receive(payload, 2);
+		std::cout << "port" << std::endl;
 	}
 
 }
