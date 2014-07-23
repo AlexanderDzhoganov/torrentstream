@@ -9,9 +9,12 @@
 #include <thread>
 #include <mutex>
 
+#include "Timer.h"
 #include "Filesystem.h"
 #include "StringFacility.h"
+#include "BinaryString.h"
 #include "Socket.h"
+#include "Wire.h"
 #include "HTTP.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
@@ -44,14 +47,23 @@ namespace TorrentStream
 			m_Pieces.emplace_back(m_PieceLength, metadata->GetPieceHash(i));
 		}
 
-		std::vector<std::string> filenames;
 		for (auto i = 0u; i < metadata->GetFilesCount(); i++)
 		{
-			auto filename = metadata->GetFileName(i);
-			filenames.push_back(filename);
-		}
+			auto file = std::make_unique<File>();
+			file->filename = metadata->GetFileName(i);
+			file->size = metadata->GetFileSize(i);
+			
+			auto fileStart = metadata->GetFileStart(i);
+			file->startPiece = fileStart.first;
+			file->startPieceOffset = fileStart.second;
 
-		int x = 0;
+			auto fileEnd = metadata->GetFileEnd(i);
+			file->endPiece = fileEnd.first;
+			file->endPieceOffset = fileEnd.second;
+
+			file->handle = std::make_unique<Filesystem::File>(m_RootPath + file->filename);
+			m_Files.push_back(std::move(file));
+		}
 	}
 
 	void Client::Start()
@@ -88,13 +100,84 @@ namespace TorrentStream
 			auto port = ((Bencode::Integer*)peerDict->GetKey("port").get())->GetValue();
 			auto idBytes = ((Bencode::ByteString*)peerDict->GetKey("peer id").get())->GetBytes();
 
+			std::ostringstream ss;
+
+			ss << std::hex << std::uppercase << std::setfill('0');
+			for (int c : idBytes) {
+				ss << std::setw(2) << c;
+			}
+
 			std::string ip(ipBytes.data(), ipBytes.size());
-			std::string id(idBytes.data(), idBytes.size());
+			std::string id = ss.str();
 
 			if (m_Peers.find(id) == m_Peers.end())
 			{
 				auto peer = std::make_unique<Peer>(ip, port, id, this);
 				m_Peers[id] = std::move(peer);
+			}
+		}
+
+		auto nextCheckTime = Timer::GetTime() + 1.0f;
+		auto nextTrackerUpdateTime = Timer::GetTime() + 20.0f;
+
+		for (;;)
+		{
+			for (auto& peer : m_Peers)
+			{
+				if (!peer.second->IsConnected())
+				{
+					m_Peers.erase(peer.first);
+					break;
+				}
+			}
+
+			if (Timer::GetTime() < nextCheckTime)
+			{
+				continue;
+			}
+
+			nextCheckTime = Timer::GetTime() + 1.0f;
+
+			auto unchoked = 0;
+			auto downloading = 0;
+
+			for (auto& peer : m_Peers)
+			{
+				if (!peer.second->IsChoked())
+				{
+					unchoked++;
+				}
+
+				if (peer.second->IsDownloading())
+				{
+					downloading++;
+				}
+			}
+
+			std::cout << "Total peers: " << m_Peers.size() << " unchoked: " << unchoked << ", downloading: " << downloading << std::endl;
+
+			auto finished = 0;
+			for (auto& piece : m_Pieces)
+			{
+				if (piece.IsComplete())
+				{
+					finished++;
+				}
+			}
+
+			std::cout << xs("% of % pieces downloaded", finished, m_Pieces.size()) << std::endl;
+
+			if (finished == m_Pieces.size())
+			{
+				std::cout << "download finished!" << std::endl;
+				m_Peers.clear();
+				return;
+			}
+
+			if (m_Peers.size() < 32 && Timer::GetTime() >= nextTrackerUpdateTime)
+			{
+				UpdateTracker();
+				nextTrackerUpdateTime = Timer::GetTime() + 20.0f;
 			}
 		}
 	}
@@ -112,7 +195,61 @@ namespace TorrentStream
 
 	void Client::UpdateTracker()
 	{
+		std::cout << "Updating tracker..";
 
+		auto announce = HTTP::ParseURL(m_AnnounceURL);
+
+		std::cout << "Tracker: " << announce.authority << std::endl;
+		std::cout << "Peer ID: " << m_PeerID << std::endl;
+		std::cout << "Port: " << m_Port << std::endl;
+
+		announce.arguments["info_hash"] = url_encode((unsigned char*)m_InfoHash.c_str());
+		announce.arguments["peer_id"] = m_PeerID;
+		announce.arguments["port"] = m_Port;
+
+		auto response = HTTP::DoHTTPRequest(announce);
+
+		if (response.statusCode != 200)
+		{
+			std::cout << xs("Client::Start(): failed, http response: %", response.statusCode) << std::endl;
+			return;
+		}
+
+		auto parsed = std::make_unique<Bencode::Dictionary>(Bencode::Tokenizer::Tokenize(response.content));
+
+		auto peersList = (Bencode::List*)(parsed->GetKey("peers").get());
+		for (auto& peerObject : peersList->GetObjects())
+		{
+			auto peerDict = (Bencode::Dictionary*)peerObject.get();
+
+			auto ipBytes = ((Bencode::ByteString*)peerDict->GetKey("ip").get())->GetBytes();
+			auto port = ((Bencode::Integer*)peerDict->GetKey("port").get())->GetValue();
+			auto idBytes = ((Bencode::ByteString*)peerDict->GetKey("peer id").get())->GetBytes();
+
+			std::ostringstream ss;
+
+			ss << std::hex << std::uppercase << std::setfill('0');
+			for (int c : idBytes) {
+				ss << std::setw(2) << c;
+			}
+
+			std::string ip(ipBytes.data(), ipBytes.size());
+			std::string id = ss.str();
+
+			if (m_Peers.find(id) == m_Peers.end())
+			{
+				auto peer = std::make_unique<Peer>(ip, port, id, this);
+				m_Peers[id] = std::move(peer);
+			}
+		}
+
+		std::cout << "got " << peersList->GetObjects().size() << " peers" << std::endl;
+	}
+
+	void Client::SubmitData(size_t pieceIndex, size_t pieceOffset, const std::vector<char>& data)
+	{
+		std::unique_lock<std::mutex> _(m_PiecesMutex);
+		m_Pieces[pieceIndex].SubmitData(pieceOffset, data);
 	}
 
 }

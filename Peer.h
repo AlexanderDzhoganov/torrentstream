@@ -17,13 +17,12 @@ namespace TorrentStream
 	{
 
 		public:
-		Peer(const std::string& ip, int port, const std::string& id, Client* client) : m_IP(ip), m_Port(port), m_ID(id), m_Client(client)
-		{
-			m_Thread = std::make_unique<std::thread>(std::bind(&Peer::RunThread, this));
-		}
+		Peer(const std::string& ip, int port, const std::string& id, Client* client);
 
 		~Peer()
 		{
+			std::unique_lock<std::mutex> _(m_Mutex);
+
 			if (m_Thread != nullptr)
 			{
 				m_Thread->join();
@@ -32,12 +31,22 @@ namespace TorrentStream
 
 		bool IsConnected()
 		{
-			if (m_Socket == nullptr)
-			{
-				return false;
-			}
+			return m_IsConnected;
+		}
 
-			return m_Socket->IsOpen();
+		const std::string& GetID()
+		{
+			return m_ID;
+		}
+
+		bool IsChoked()
+		{
+			return m_Choked;
+		}
+
+		bool IsDownloading()
+		{
+			return m_HasCurrentPiece && m_CurrentPieceRequested;
 		}
 
 		private:
@@ -54,10 +63,10 @@ namespace TorrentStream
 		void OnUnchoke();
 		void OnInterested();
 		void OnNotInterested();
-		void OnHave();
-		void OnBitfield(size_t len);
+		void OnHave(size_t pieceIndex);
+		void OnBitfield(const std::vector<bool>& bitfield);
 		void OnRequest();
-		void OnPiece(size_t len);
+		void OnPiece(const Wire::PieceBlock& block);
 		void OnCancel();
 		void OnPort();
 
@@ -69,6 +78,20 @@ namespace TorrentStream
 
 		bool m_Choked = true;
 		bool m_Interested = false;
+
+		bool m_IsConnected = true;
+
+		std::vector<bool> m_PieceAvailability;
+
+		size_t m_PieceLength = 0;
+		std::vector<char> m_CurrentPieceData;
+		size_t m_CurrentPiece = 0;
+		bool m_HasCurrentPiece = false;
+		bool m_CurrentPieceRequested = false;
+
+		bool m_ExpectResponse = false;
+
+		double m_LastMessageTime = 0.0;
 
 		std::unique_ptr<Socket::Socket> m_Socket = nullptr;
 		std::unique_ptr<std::thread> m_Thread = nullptr;

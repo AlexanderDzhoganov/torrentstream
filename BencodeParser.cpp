@@ -136,6 +136,85 @@ namespace TorrentStream
 			}
 		}
 
+		std::string Dictionary::ToString()
+		{
+			std::stringstream s;
+
+			s << "{ ";
+
+			auto counter = 0u;
+			for (auto& obj : m_Keys)
+			{
+				s << "\"" << obj.first << "\": " << obj.second->ToString();
+				if (counter != m_Keys.size() - 1)
+				{
+					s << ", ";
+				}
+
+				counter++;
+			}
+
+			s << " }";
+
+			return s.str();
+		}
+
+		const std::vector<std::pair<std::string, std::shared_ptr<Object>>>& Dictionary::GetKeys()
+		{
+			return m_Keys;
+		}
+
+		std::shared_ptr<Object> Dictionary::GetKey(const std::string& key)
+		{
+			for (auto& pair : m_Keys)
+			{
+				if (pair.first == key)
+				{
+					return pair.second;
+				}
+			}
+
+			return nullptr;
+		}
+
+		std::vector<char> Dictionary::Encode()
+		{
+			std::vector<char> encoded;
+			encoded.push_back('d');
+
+			for (auto& pair : m_Keys)
+			{
+				auto& key = pair.first;
+				auto& obj = pair.second;
+
+				auto len = xs("%:", key.length());
+
+				for (auto c : len)
+				{
+					encoded.push_back(c);
+				}
+
+				for (auto c : key)
+				{
+					encoded.push_back(c);
+				}
+
+				auto encodedObj = obj->Encode();
+				for (auto c : encodedObj)
+				{
+					encoded.push_back(c);
+				}
+			}
+
+			encoded.push_back('e');
+			return encoded;
+		}
+
+		void Dictionary::Insert(const std::string& key, std::shared_ptr<Object> object)
+		{
+			m_Keys.push_back(std::make_pair(key, std::move(object)));
+		}
+
 	}
 
 }

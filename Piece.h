@@ -8,27 +8,15 @@ namespace TorrentStream
 	{
 
 		public:
-		Piece(size_t size, const std::vector<char>& hash) : m_Size(size), m_Hash(hash) {}
-
-		void SubmitData(const std::vector<char>& data)
+		Piece(size_t size, const std::vector<char>& hash) : m_Size(size), m_Hash(hash)
 		{
-			m_Data.reserve(m_Data.size() + data.size());
-
-			for (auto c : data)
-			{
-				m_Data.push_back(c);
-				m_DataPtr++;
-			}
 		}
 
-		size_t GetDataPtr()
+		void SubmitData(size_t offset, const std::vector<char>& data)
 		{
-			return m_DataPtr;
-		}
-
-		bool IsCompleted()
-		{
-			return (m_Size - m_DataPtr) == 0;
+			m_Data.resize(data.size());
+			std::copy(data.begin(), data.end(), m_Data.begin() + offset);
+			m_IsComplete = true;
 		}
 
 		bool CheckHash()
@@ -36,17 +24,27 @@ namespace TorrentStream
 			return true;
 		}
 		
-		const std::vector<char> GetData()
+		std::vector<char> GetData()
 		{
 			return m_Data;
+		}
+
+		bool IsComplete()
+		{
+			return m_IsComplete;
+		}
+
+		void SetComplete(bool state)
+		{
+			m_IsComplete = state;
 		}
 
 		private:
 		size_t m_Size = 0;
 		std::vector<char> m_Hash;
 
-		size_t m_DataPtr = 0;
 		std::vector<char> m_Data;
+		bool m_IsComplete = false;
 
 	};
 

@@ -13,6 +13,7 @@
 #include "Filesystem.h"
 #include "StringFacility.h"
 #include "BinaryString.h"
+#include "Timer.h"
 
 #include "Socket.h"
 #include "Wire.h"
@@ -28,38 +29,115 @@
 namespace TorrentStream
 {
 
+	Peer::Peer(const std::string& ip, int port, const std::string& id, Client* client) :
+		m_IP(ip), m_Port(port), m_ID(id), m_Client(client), m_PieceLength(m_Client->GetPieceLength())
+	{
+		auto piecesCount = client->GetPiecesCount();
+		m_PieceAvailability.resize(piecesCount);
+
+		m_Thread = std::make_unique<std::thread>(std::bind(&Peer::RunThread, this));
+	}
+
 	void Peer::RunThread()
 	{
-		m_Socket = std::make_unique<Socket::Socket>();
-		m_Socket->Open(m_IP, xs("%", m_Port));
-
-		size_t retries = 3;
-		while (!m_Socket->IsOpen() && retries > 0)
 		{
+			std::unique_lock<std::mutex> _(m_Mutex);
+
 			m_Socket = std::make_unique<Socket::Socket>();
 			m_Socket->Open(m_IP, xs("%", m_Port));
-			retries--;
+
+			if (!m_Socket->IsOpen())
+			{
+				std::cout << xs("failed to connect to peer %:%", m_IP, m_Port) << std::endl;
+				return;
+			}
+
+			std::cout << xs("[%] connected to peer %:%", m_IP, m_IP, m_Port) << std::endl;
+
+			SendHandshake();
+			ReceiveHandshake();
+
+			m_LastMessageTime = Timer::GetTime();
 		}
-
-		if (!m_Socket->IsOpen())
-		{
-			std::cout << xs("failed to connect to peer %:%", m_IP, m_Port) << std::endl;
-			return;
-		}
-
-		std::cout << xs("connected to peer %:%", m_IP, m_Port) << std::endl;
-
-		SendHandshake();
-		ReceiveHandshake();
 
 		for (;;)
 		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+			std::unique_lock<std::mutex> _(m_Mutex);
+
 			if (m_Socket == nullptr)
 			{
+				if (m_HasCurrentPiece)
+				{
+					m_Client->UnmapPiece(m_ID, m_CurrentPiece);
+				}
+
+				m_IsConnected = false;
 				return;
 			}
 			
+			if (!m_HasCurrentPiece)
+			{
+				for (auto i = 0u; i < m_PieceAvailability.size(); i++)
+				{
+					if (m_PieceAvailability[i] == true && m_Client->MapPiece(m_ID, i))
+					{
+						m_HasCurrentPiece = true;
+						m_CurrentPiece = i;
+						SendInterested();
+						break;
+					}
+				}
+			}
+
+			if (m_LastMessageTime + 4.0 < Timer::GetTime())
+			{
+				m_Socket = nullptr;
+
+				if (m_HasCurrentPiece)
+				{
+					m_Client->UnmapPiece(m_ID, m_CurrentPiece);
+				}
+
+				m_IsConnected = false;
+
+				std::cout << "[" << m_IP << "] timed out" << std::endl;
+				return;
+			}
+
 			ReceiveMessage();
+
+			if (m_Choked)
+			{
+				continue;
+			}
+
+			if (!m_CurrentPieceRequested && m_HasCurrentPiece)
+			{
+				if (m_CurrentPieceData.size() == m_PieceLength)
+				{
+					std::cout << "[" << m_IP << "] piece finished" << std::endl;
+
+					m_Client->SubmitData(m_CurrentPiece, 0, m_CurrentPieceData);
+
+					m_CurrentPieceData.clear();
+					m_HasCurrentPiece = false;
+
+					for (auto i = 0u; i < m_PieceAvailability.size(); i++)
+					{
+						if (m_PieceAvailability[i] == true && m_Client->MapPiece(m_ID, i))
+						{
+							m_HasCurrentPiece = true;
+							m_CurrentPiece = i;
+							break;
+						}
+					}
+				}
+
+				Wire::SendRequest(m_Socket, m_CurrentPiece, m_CurrentPieceData.size(), m_PieceLength < 32768 ? m_PieceLength : 32768);
+				m_CurrentPieceRequested = true;
+			}
 		}
 	}
 
@@ -84,7 +162,6 @@ namespace TorrentStream
 		}
 		catch (const std::exception& e)
 		{
-			std::cout << "Exception in ReceiveHandshake, closing connection.." << std::endl;
 			m_Socket = nullptr;
 			return;
 		}
@@ -97,8 +174,6 @@ namespace TorrentStream
 		}
 
 		std::cout << "handshake complete, got peer id: " << peerId << std::endl;
-
-		SendInterested();
 	}
 
 	void Peer::ReceiveMessage()
@@ -112,7 +187,6 @@ namespace TorrentStream
 		}
 		catch (const std::exception& e)
 		{
-			std::cout << "Exception in ReceiveMessageHeader, closing connection.." << std::endl;
 			m_Socket = nullptr;
 			return;
 		}
@@ -132,16 +206,16 @@ namespace TorrentStream
 			OnNotInterested();
 			break;
 		case Wire::PeerMessageID::Have:
-			OnHave();
+			OnHave(Wire::ReceiveHaveMessage(m_Socket));
 			break;
 		case Wire::PeerMessageID::Bitfield:
-			OnBitfield(len);
+			OnBitfield(Wire::ReceiveBitfieldMessage(m_Socket, len));
 			break;
 		case Wire::PeerMessageID::Request:
 			OnRequest();
 			break;
 		case Wire::PeerMessageID::Piece:
-			OnPiece(len);
+			OnPiece(Wire::ReceivePiece(m_Socket, len));
 			break;
 		case Wire::PeerMessageID::Cancel:
 			OnCancel();
@@ -150,8 +224,11 @@ namespace TorrentStream
 			OnPort();
 			break;
 		default:
+			int x = 0;
 			break;
 		}
+
+		m_LastMessageTime = Timer::GetTime(); 
 	}
 
 	void Peer::OnKeepAlive()
@@ -178,20 +255,33 @@ namespace TorrentStream
 		m_Interested = false;
 	}
 
-	void Peer::OnHave()
+	void Peer::OnHave(size_t pieceIndex)
 	{
-		unsigned int piece;
-		m_Socket->Receive(piece);
-		piece = ByteSwap(piece);
-		std::cout << "have: " << piece << std::endl;
+		if (pieceIndex > m_PieceAvailability.size())
+		{
+			std::cout << "invalid piece index: " << pieceIndex << std::endl;
+			return;
+		}
+
+		m_PieceAvailability[pieceIndex] = true;
 	}
 
-	void Peer::OnBitfield(size_t len)
+	void Peer::OnBitfield(const std::vector<bool>& bitfield)
 	{
-		std::vector<char> bitfield;
-		m_Socket->Receive(bitfield, len - 1);
+		if (bitfield.size() < m_PieceAvailability.size())
+		{
+			std::cout << "bad bitfield" << std::endl;
+			m_Socket = nullptr;
+			return;
+		}
 
-		std::cout << "bitfield: " << len << std::endl;
+		for (auto i = 0u; i < m_PieceAvailability.size(); i++)
+		{
+			if (bitfield[i] == true)
+			{
+				m_PieceAvailability[i] = true;
+			}
+		}
 	}
 
 	void Peer::OnRequest()
@@ -211,11 +301,13 @@ namespace TorrentStream
 		std::cout << "request" << std::endl;
 	}
 
-	void Peer::OnPiece(size_t len)
+	void Peer::OnPiece(const Wire::PieceBlock& block)
 	{
-		std::vector<char> payload;
-		m_Socket->Receive(payload, len - 1);
-		std::cout << "piece" << std::endl;
+		for (auto c : block.data)
+		{
+			m_CurrentPieceData.push_back(c);
+		}
+		m_CurrentPieceRequested = false;
 	}
 
 	void Peer::OnCancel()

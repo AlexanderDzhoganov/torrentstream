@@ -29,7 +29,7 @@ namespace TorrentStream
 
 		class BadMessageID : public std::exception {};
 
-		bool SendHandshake(const std::unique_ptr<Socket::Socket>& socket, const std::string& infoHash, const std::string& peerId)
+		inline bool SendHandshake(const std::unique_ptr<Socket::Socket>& socket, const std::string& infoHash, const std::string& peerId)
 		{
 			BinaryString handshake;
 
@@ -43,7 +43,7 @@ namespace TorrentStream
 			return socket->Send(handshake.Get());
 		}
 
-		void ReceiveHandshake(const std::unique_ptr<Socket::Socket>& socket, std::string& infoHash, std::string& peerId)
+		inline void ReceiveHandshake(const std::unique_ptr<Socket::Socket>& socket, std::string& infoHash, std::string& peerId)
 		{
 			char msgLen;
 			auto recvd = socket->Receive(msgLen);
@@ -80,7 +80,7 @@ namespace TorrentStream
 			}
 		}
 
-		bool SendInterested(const std::unique_ptr<Socket::Socket>& socket)
+		inline bool SendInterested(const std::unique_ptr<Socket::Socket>& socket)
 		{
 			BinaryString msg;
 			msg.PushInt32(1, BigEndian);
@@ -88,7 +88,20 @@ namespace TorrentStream
 			return socket->Send(msg.Get());
 		}
 
-		PeerMessageID ReceiveMessageHeader(const std::unique_ptr<Socket::Socket>& socket, unsigned int& msgLength)
+		inline bool SendRequest(const std::unique_ptr<Socket::Socket>& socket, size_t piece, size_t begin, size_t len)
+		{
+			BinaryString msg;
+
+			msg.PushInt32(13, BigEndian);
+			msg.PushUint8((char)PeerMessageID::Request);
+			msg.PushInt32(piece, BigEndian);
+			msg.PushInt32(begin, BigEndian);
+			msg.PushInt32(len, BigEndian);
+
+			return socket->Send(msg.Get());
+		}
+
+		inline PeerMessageID ReceiveMessageHeader(const std::unique_ptr<Socket::Socket>& socket, unsigned int& msgLength)
 		{
 			unsigned int len;
 			auto recvd = socket->Receive(len);
@@ -125,6 +138,69 @@ namespace TorrentStream
 
 			msgLength = len;
 			return (PeerMessageID)id;
+		}
+
+		inline size_t ReceiveHaveMessage(const std::unique_ptr<Socket::Socket>& socket)
+		{
+			unsigned int index;
+			auto recvd = socket->Receive(index);
+			index = ByteSwap(index);
+
+			if (recvd <= 0)
+			{
+				throw SocketError();
+			}
+
+			return index;
+		}
+
+		inline std::vector<bool> ReceiveBitfieldMessage(const std::unique_ptr<Socket::Socket>& socket, int len)
+		{
+			size_t bitfieldLength = len - 1;
+
+			std::vector<char> bitfield;
+			socket->Receive(bitfield, bitfieldLength);
+			auto pieceCount = bitfield.size() * 8;
+
+			std::vector<bool> result;
+			result.resize(pieceCount);
+
+			for (auto i = 0u; i < pieceCount; i++)
+			{
+				if (bitfield[i / 8] & (1 << ((8 - i % 8) - 1)))
+				{
+					result[i] = true;
+				}
+			}
+			
+			return result;
+		}
+
+		struct PieceBlock
+		{
+			std::vector<char> data;
+			size_t index;
+			size_t offset;
+		};
+
+		inline PieceBlock ReceivePiece(const std::unique_ptr<Socket::Socket>& socket, int len)
+		{
+			unsigned int index;
+			auto recvd = socket->Receive(index);
+			index = ByteSwap(index);
+
+			unsigned int begin;
+			recvd = socket->Receive(begin);
+			begin = ByteSwap(begin);
+
+			PieceBlock result;
+
+			result.index = index;
+			result.offset = begin;
+			
+			socket->Receive(result.data, len - 9);
+
+			return result;
 		}
 
 	}

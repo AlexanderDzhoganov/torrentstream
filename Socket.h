@@ -7,6 +7,8 @@ namespace TorrentStream
 	namespace Socket
 	{
 
+		class SocketError : public std::exception {};
+
 		struct SocketImpl;
 
 		class Socket

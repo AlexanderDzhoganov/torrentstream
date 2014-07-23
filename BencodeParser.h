@@ -23,6 +23,11 @@ namespace TorrentStream
 			virtual std::vector<char> Encode() = 0;
 		};
 
+		template <typename T>
+		struct TypeToEnum
+		{
+		};
+
 		class Integer : public Object
 		{
 
@@ -190,88 +195,58 @@ namespace TorrentStream
 				return ObjectType::DICTIONARY;
 			}
 
-			std::string ToString()
-			{
-				std::stringstream s;
+			std::string ToString();
 
-				s << "{ ";
+			const std::vector<std::pair<std::string, std::shared_ptr<Object>>>& GetKeys();
 
-				auto counter = 0u;
-				for (auto& obj : m_Keys)
-				{
-					s << "\"" << obj.first << "\": " << obj.second->ToString();
-					if (counter != m_Keys.size() - 1)
-					{
-						s << ", ";
-					}
+			std::shared_ptr<Object> GetKey(const std::string& key);
 
-					counter++;
-				}
-
-				s << " }";
-
-				return s.str();
-			}
-
-			const std::vector<std::pair<std::string, std::shared_ptr<Object>>>& GetKeys()
-			{
-				return m_Keys;
-			}
-
-			std::shared_ptr<Object> GetKey(const std::string& key)
+			template <typename T>
+			T* GetKey(const std::string& key)
 			{
 				for (auto& pair : m_Keys)
 				{
 					if (pair.first == key)
 					{
-						return pair.second;
+						assert(pair.second->GetType() == TypeToEnum<T>::type);
+						return (T*)pair.second.get();
 					}
 				}
 
 				return nullptr;
 			}
 
-			std::vector<char> Encode()
-			{
-				std::vector<char> encoded;
-				encoded.push_back('d');
-
-				for (auto& pair : m_Keys)
-				{
-					auto& key = pair.first;
-					auto& obj = pair.second;
-
-					auto len = xs("%:", key.length());
-
-					for (auto c : len)
-					{
-						encoded.push_back(c);
-					}
-
-					for (auto c : key)
-					{
-						encoded.push_back(c);
-					}
-
-					auto encodedObj = obj->Encode();
-					for (auto c : encodedObj)
-					{
-						encoded.push_back(c);
-					}
-				}
-
-				encoded.push_back('e');
-				return encoded;
-			}
+			std::vector<char> Encode();
 
 			private:
-			void Insert(const std::string& key, std::shared_ptr<Object> object)
-			{
-				m_Keys.push_back(std::make_pair(key, std::move(object)));
-			}
+			void Insert(const std::string& key, std::shared_ptr<Object> object);
 
 			std::vector<std::pair<std::string, std::shared_ptr<Object>>> m_Keys;
 
+		};
+
+		template <>
+		struct TypeToEnum<Bencode::Integer>
+		{
+			static const Bencode::ObjectType type = Bencode::ObjectType::INTEGER;
+		};
+
+		template <>
+		struct TypeToEnum<Bencode::ByteString>
+		{
+			static const Bencode::ObjectType type = Bencode::ObjectType::BYTESTRING;
+		};
+
+		template <>
+		struct TypeToEnum<Bencode::List>
+		{
+			static const Bencode::ObjectType type = Bencode::ObjectType::LIST;
+		};
+
+		template <>
+		struct TypeToEnum<Bencode::Dictionary>
+		{
+			static const Bencode::ObjectType type = Bencode::ObjectType::DICTIONARY;
 		};
 
 	}

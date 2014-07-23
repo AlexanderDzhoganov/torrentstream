@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <assert.h>
 
 #include "Socket.h"
 
@@ -130,19 +131,20 @@ namespace TorrentStream
 
 		int Socket::Receive(void* data, int size)
 		{
-			auto result = recv(m_Impl->m_Socket, (char*)data, size, 0);
-			if (result <= 0)
+			size_t total = 0;
+
+			while (total < size)
 			{
-				if (result < 0)
+				auto result = recv(m_Impl->m_Socket, (char*)data + total, size - total, 0);
+				if (result <= 0)
 				{
-					std::cout << "Socket recv() error: " << WSAGetLastError() << std::endl;
+					return total;
 				}
 
-				m_Impl->m_IsOpen = false;
-				return false;
+				total += result;
 			}
 
-			return result;
+			return total;
 		}
 
 		int Socket::Receive(std::vector<char>& data, int size)
@@ -153,7 +155,6 @@ namespace TorrentStream
 			}
 
 			auto result = Receive((void*)data.data(), size);
-
 			data.resize(result);
 			return result;
 		}

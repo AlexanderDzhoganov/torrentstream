@@ -6,6 +6,8 @@ namespace TorrentStream
 
 	class InvalidInfoSection : public std::exception {};
 	
+	class InvalidFileIndex : public std::exception {};
+
 	class MetadataFile
 	{
 
@@ -32,6 +34,12 @@ namespace TorrentStream
 		std::vector<char> GetPieceHash(size_t index);
 
 		std::string GetFileName(size_t index);
+
+		size_t GetFileSize(size_t index);
+
+		std::pair<size_t, size_t> GetFileStart(size_t index);
+
+		std::pair<size_t, size_t> GetFileEnd(size_t index);
 
 		void PrintInfo();
 

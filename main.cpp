@@ -9,12 +9,15 @@
 #include <fstream>
 #include <assert.h>
 
+#include "Timer.h"
 #include "Filesystem.h"
 #include "StringFacility.h"
+#include "BinaryString.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
 #include "MetadataFile.h"
 #include "Socket.h"
+#include "Wire.h"
 #include "HTTP.h"
 #include "Peer.h"
 #include "Piece.h"
@@ -25,6 +28,8 @@ using namespace TorrentStream;
 
 int main()
 {
+	Timer::Initialize();
+
 	std::ifstream f("../test.torrent", std::ios::binary);
 	if (!f.is_open())
 	{
