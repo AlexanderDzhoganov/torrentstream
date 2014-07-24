@@ -11,7 +11,38 @@ namespace TorrentStream
 		std::vector<char> payload;
 	};
 
+	enum class PeerMessageType
+	{
+		Choke = 0,
+		Unchoke = 1,
+		Interested = 2,
+		NotInterested = 3,
+		Have = 4,
+		Bitfield = 5,
+		Request = 6,
+		Piece = 7,
+		Cancel = 8,
+		Port = 9,
+		KeepAlive = 10,
+	};
+
+	enum class PeerState
+	{
+		Disconnected = 0,
+		Choked,
+		Waiting,
+		Idle,
+		Downloading,
+		Error
+	};
+
 	class Client;
+
+	struct PieceRequest
+	{
+		size_t index;
+		size_t offset;
+	};
 
 	class Peer
 	{
@@ -21,81 +52,93 @@ namespace TorrentStream
 
 		~Peer()
 		{
-			std::unique_lock<std::mutex> _(m_Mutex);
-
-			if (m_Thread != nullptr)
-			{
-				m_Thread->join();
-			}
 		}
 
-		bool IsConnected()
-		{
-			return m_IsConnected;
-		}
-
-		const std::string& GetID()
+		const std::string& GetID() const
 		{
 			return m_ID;
 		}
 
-		bool IsChoked()
+		const BandwidthTracker& GetDownloadBandwidthTracker() const
 		{
-			return m_Choked;
+			return m_BandwidthDown;
 		}
 
-		bool IsDownloading()
+		PeerState GetState() const
 		{
-			return m_HasCurrentPiece && m_CurrentPieceRequested;
+			return m_State;
+		}
+
+		void Connect();
+
+		void WarmUp();
+
+		size_t GetAverageBandwidth()
+		{
+			return m_AverageBandwidth;
 		}
 
 		private:
-		void RunThread();
+		void RequestPiece(size_t index);
 
-		void SendHandshake();
-		void SendInterested();
+		void HandleSendInterested();
+		void HandleSendNotInterested();
 
-		void ReceiveHandshake();
-		void ReceiveMessage();
+		void HandleSendRequest(size_t index, size_t offset, size_t length);
 
-		void OnKeepAlive();
-		void OnChoke();
-		void OnUnchoke();
-		void OnInterested();
-		void OnNotInterested();
-		void OnHave(size_t pieceIndex);
-		void OnBitfield(const std::vector<bool>& bitfield);
-		void OnRequest();
-		void OnPiece(const Wire::PieceBlock& block);
-		void OnCancel();
-		void OnPort();
+		void HandleResolve(const boost::system::error_code& error, boost::asio::ip::tcp::resolver::iterator endpoint);
+		void HandleConnect(const boost::system::error_code& error);
+		void HandleHandshake(std::shared_ptr<std::array<char, 68>> buffer, const boost::system::error_code& error);
+
+		void QueueReceiveMessage();
+		void HandleReceiveMessageHeader(std::shared_ptr<std::array<char, 4>> buffer, const boost::system::error_code& error);
+		void HandleReceiveMessageID(std::shared_ptr<char> id, size_t len, const boost::system::error_code& error);
+
+		void HandleReceiveHaveHeader();
+		void HandleReceiveHave(std::shared_ptr<int> index, const boost::system::error_code& error);
+
+		void HandleReceiveBitfieldHeader(size_t len);
+		void HandleReceiveBitfield(std::shared_ptr<std::vector<char>> bitfield, const boost::system::error_code& error);
+		
+		void HandleReceiveRequestHeader();
+		void HandleReceiveRequest(const boost::system::error_code& error);
+
+		void HandleReceivePieceHeader(size_t len);
+		void HandleReceivePiece(std::shared_ptr<std::vector<char>> data, const boost::system::error_code& error);
+
+		void HandleReceiveCancelHeader();
+		void HandleReceiveCancel(const boost::system::error_code& error);
+
+		void HandleReceivePortHeader();
+		void HandleReceivePort(const boost::system::error_code& error);
+
+		bool m_WarmUp = false;
+		size_t m_AverageBandwidth = 0;
+
+		size_t m_RequestSize = 16 * 1024;
+		size_t m_CurrentPiece = 0;
+		size_t m_CurrentPieceOffset = 0;
+		std::deque<PieceRequest> m_PieceRequests;
 
 		Client* m_Client;
 
 		std::string m_IP;
 		int m_Port;
-		std::string m_ID;
 
-		bool m_Choked = true;
+		std::string m_ID;
+		std::string m_SelfReportedID;
+
 		bool m_Interested = false;
 
-		bool m_IsConnected = true;
-
+		size_t m_PieceLength;
 		std::vector<bool> m_PieceAvailability;
 
-		size_t m_PieceLength = 0;
-		std::vector<char> m_CurrentPieceData;
-		size_t m_CurrentPiece = 0;
-		bool m_HasCurrentPiece = false;
-		bool m_CurrentPieceRequested = false;
+		std::unique_ptr<boost::asio::ip::tcp::socket> m_Socket = nullptr;
+		std::unique_ptr<boost::asio::ip::tcp::resolver> m_Resolver = nullptr;
 
-		bool m_ExpectResponse = false;
+		BandwidthTracker m_BandwidthDown;
 
-		double m_LastMessageTime = 0.0;
-
-		std::unique_ptr<Socket::Socket> m_Socket = nullptr;
-		std::unique_ptr<std::thread> m_Thread = nullptr;
-		std::mutex m_Mutex;
+		PeerState m_State = PeerState::Disconnected;
 
 	};
 

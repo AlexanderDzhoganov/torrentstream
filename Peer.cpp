@@ -3,6 +3,8 @@
 #include <vector>
 #include <unordered_map>
 #include <ctime>
+#include <deque>
+#include <set>
 #include <iostream>
 #include <assert.h>
 #include <memory>
@@ -10,10 +12,15 @@
 #include <mutex>
 #include <intrin.h>
 
+#include <boost/bind.hpp>
+#include <boost/asio.hpp>
+#include "ASIOThreadPool.h"
+
 #include "Filesystem.h"
 #include "StringFacility.h"
 #include "BinaryString.h"
 #include "Timer.h"
+#include "BandwidthTracker.h"
 
 #include "Socket.h"
 #include "Wire.h"
@@ -34,294 +41,347 @@ namespace TorrentStream
 	{
 		auto piecesCount = client->GetPiecesCount();
 		m_PieceAvailability.resize(piecesCount);
-
-		m_Thread = std::make_unique<std::thread>(std::bind(&Peer::RunThread, this));
 	}
 
-	void Peer::RunThread()
+	void Peer::Connect()
 	{
+		using boost::asio::ip::tcp;
+
+		m_State = PeerState::Waiting;
+
+		auto& service = ASIO::ThreadPool::Instance().GetService();
+		m_Socket = std::make_unique<tcp::socket>(service);
+		m_Resolver = std::make_unique<tcp::resolver>(service);
+
+		tcp::resolver::query query(m_IP, xs("%", m_Port));
+		m_Resolver->async_resolve(query, [&](const boost::system::error_code& error, boost::asio::ip::tcp::resolver::iterator endpoint)
 		{
-			std::unique_lock<std::mutex> _(m_Mutex);
-
-			m_Socket = std::make_unique<Socket::Socket>();
-			m_Socket->Open(m_IP, xs("%", m_Port));
-
-			if (!m_Socket->IsOpen())
+			if (!error)
 			{
-				std::cout << xs("failed to connect to peer %:%", m_IP, m_Port) << std::endl;
-				return;
+				tcp::endpoint endpt = *endpoint;
+				m_Socket->async_connect(endpt, boost::bind(&Peer::HandleConnect, this, boost::asio::placeholders::error));
+			}
+			else
+			{
+				m_State = PeerState::Error;
+				std::cout << "async_resolve error: " << error << std::endl;
+			}
+		});
+	}
+
+	void Peer::WarmUp()
+	{
+		m_State = PeerState::Downloading;
+		m_WarmUp = true;
+		HandleSendInterested();
+	}
+
+	void Peer::RequestPiece(size_t index)
+	{
+		m_CurrentPiece = index;
+		m_CurrentPieceOffset = 0;
+
+		for (auto i = 0u; i < 5; i++)
+		{
+			HandleSendRequest(m_CurrentPiece, m_CurrentPieceOffset, m_RequestSize);
+
+			m_CurrentPieceOffset += m_RequestSize;
+			if (m_CurrentPieceOffset >= m_PieceLength)
+			{
+				break;
+			}
+		}
+	}
+
+	void Peer::HandleSendInterested()
+	{
+		boost::asio::streambuf request;
+		std::ostream request_stream(&request);
+
+		int one = _byteswap_ulong(1);
+		request_stream.write((char*)&one, sizeof(int));
+		request_stream << (char)PeerMessageType::Interested;
+
+		boost::system::error_code error;
+		boost::asio::write(*m_Socket, request, error);
+	}
+
+	void Peer::HandleSendNotInterested()
+	{
+		boost::asio::streambuf request;
+		std::ostream request_stream(&request);
+
+		int one = _byteswap_ulong(1);
+		request_stream.write((char*)&one, sizeof(int));
+		request_stream << (char)PeerMessageType::NotInterested;
+
+		boost::system::error_code error;
+		boost::asio::write(*m_Socket, request, error);
+	}
+
+	void Peer::HandleSendRequest(size_t index_, size_t offset_, size_t length_)
+	{
+		boost::asio::streambuf request;
+		std::ostream request_stream(&request);
+
+		int len = _byteswap_ulong(13);
+		auto index = _byteswap_ulong(index_);
+		auto offset = _byteswap_ulong(offset_);
+		auto length = _byteswap_ulong(length_);
+
+		request_stream.write((char*)&len, sizeof(int));
+		request_stream << (char)PeerMessageType::Request;
+		request_stream.write((char*)&index, sizeof(int));
+		request_stream.write((char*)&offset, sizeof(int));
+		request_stream.write((char*)&length, sizeof(int));
+
+		boost::system::error_code error;
+		boost::asio::write(*m_Socket, request, error);
+	}
+
+	void Peer::HandleConnect(const boost::system::error_code& error)
+	{
+		if (!error)
+		{
+			std::cout << "connected to peer " << m_IP << std::endl;
+
+			boost::asio::streambuf request;
+			std::ostream request_stream(&request);
+
+			char protocolLength = 19;
+			char zero = 0;
+			request_stream << protocolLength;
+			request_stream << "BitTorrent protocol";
+			
+			for (auto q = 0u; q < 8; q++)
+			{
+				request_stream << zero;
 			}
 
-			std::cout << xs("[%] connected to peer %:%", m_IP, m_IP, m_Port) << std::endl;
+			request_stream << m_Client->m_InfoHash;
+			request_stream << m_Client->m_PeerID;
 
-			SendHandshake();
-			ReceiveHandshake();
+			boost::asio::write(*m_Socket, request);
 
-			m_LastMessageTime = Timer::GetTime();
+			auto handshakeBuffer = std::make_shared<std::array<char, 68>>();
+					
+			boost::asio::async_read
+			(
+				*m_Socket,
+				boost::asio::buffer(*handshakeBuffer),
+				boost::bind(&Peer::HandleHandshake, this, handshakeBuffer, boost::asio::placeholders::error)
+			);
+		}
+		else
+		{
+			m_State = PeerState::Error;
+		}
+	}
+
+	void Peer::HandleHandshake(std::shared_ptr<std::array<char, 68>> buffer, const boost::system::error_code& error)
+	{
+		if ((*buffer)[0] != 19)
+		{
+			m_State = PeerState::Error;
+			return;
+		}
+		std::string protocolId(buffer->data() + 1, 19);
+		if (protocolId != "BitTorrent protocol")
+		{
+			m_State = PeerState::Error;
+			return;
 		}
 
-		for (;;)
+		std::string infoHash(buffer->data() + 28, 20);
+		if (infoHash != m_Client->m_InfoHash)
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			std::cout << "bad info_hash" << std::endl;
+			m_State = PeerState::Error;
+			return;
+		}
 
-			std::unique_lock<std::mutex> _(m_Mutex);
+		std::string peerId(buffer->data() + 48, 20);
+		m_SelfReportedID = peerId;
 
-			if (m_Socket == nullptr)
+		QueueReceiveMessage();
+
+		m_State = PeerState::Idle;
+	}
+
+	void Peer::QueueReceiveMessage()
+	{
+		auto headerBuffer = std::make_shared<std::array<char, 4>>();
+
+		boost::asio::async_read
+		(
+			*m_Socket,
+			boost::asio::buffer(*headerBuffer),
+			boost::bind(&Peer::HandleReceiveMessageHeader, this, headerBuffer, boost::asio::placeholders::error)
+		);
+	}
+
+	void Peer::HandleReceiveMessageHeader(std::shared_ptr<std::array<char, 4>> buffer, const boost::system::error_code& error)
+	{
+		auto len = *((unsigned int*)buffer->data());
+		len = _byteswap_ulong(len);
+
+		auto idBuffer = std::make_shared<char>();
+
+		boost::asio::async_read
+		(
+			*m_Socket,
+			boost::asio::buffer(idBuffer.get(), sizeof(char)),
+			boost::bind(&Peer::HandleReceiveMessageID, this, idBuffer, len, boost::asio::placeholders::error)
+		);
+	}
+
+	void Peer::HandleReceiveMessageID(std::shared_ptr<char> id_, size_t len, const boost::system::error_code& error)
+	{
+		auto id = *id_;
+
+		switch ((PeerMessageType)id)
+		{
+		case PeerMessageType::KeepAlive:
+			QueueReceiveMessage();
+			break;
+		case PeerMessageType::Choke:
+			m_State = PeerState::Choked;
+			QueueReceiveMessage();
+			break;
+		case PeerMessageType::Unchoke:
+			m_State = PeerState::Idle;
+
+			if (m_WarmUp)
 			{
-				if (m_HasCurrentPiece)
-				{
-					m_Client->UnmapPiece(m_ID, m_CurrentPiece);
-				}
+				m_State = PeerState::Downloading;
 
-				m_IsConnected = false;
-				return;
-			}
-			
-			if (!m_HasCurrentPiece)
-			{
 				for (auto i = 0u; i < m_PieceAvailability.size(); i++)
 				{
-					if (m_PieceAvailability[i] == true && m_Client->MapPiece(m_ID, i))
+					if (!m_PieceAvailability[i])
 					{
-						m_HasCurrentPiece = true;
-						m_CurrentPiece = i;
-						SendInterested();
-						break;
+						continue;
 					}
+
+					m_BandwidthDown.Start();
+					RequestPiece(i);
+					break;
 				}
 			}
 
-			if (m_LastMessageTime + 4.0 < Timer::GetTime())
-			{
-				m_Socket = nullptr;
-
-				if (m_HasCurrentPiece)
-				{
-					m_Client->UnmapPiece(m_ID, m_CurrentPiece);
-				}
-
-				m_IsConnected = false;
-
-				std::cout << "[" << m_IP << "] timed out" << std::endl;
-				return;
-			}
-
-			ReceiveMessage();
-
-			if (m_Choked)
-			{
-				continue;
-			}
-
-			if (!m_CurrentPieceRequested && m_HasCurrentPiece)
-			{
-				if (m_CurrentPieceData.size() == m_PieceLength)
-				{
-					std::cout << "[" << m_IP << "] piece finished" << std::endl;
-
-					m_Client->SubmitData(m_CurrentPiece, 0, m_CurrentPieceData);
-
-					m_CurrentPieceData.clear();
-					m_HasCurrentPiece = false;
-
-					for (auto i = 0u; i < m_PieceAvailability.size(); i++)
-					{
-						if (m_PieceAvailability[i] == true && m_Client->MapPiece(m_ID, i))
-						{
-							m_HasCurrentPiece = true;
-							m_CurrentPiece = i;
-							break;
-						}
-					}
-				}
-
-				Wire::SendRequest(m_Socket, m_CurrentPiece, m_CurrentPieceData.size(), m_PieceLength < 32768 ? m_PieceLength : 32768);
-				m_CurrentPieceRequested = true;
-			}
-		}
-	}
-
-	void Peer::SendHandshake()
-	{
-		Wire::SendHandshake(m_Socket, m_Client->m_InfoHash, m_Client->m_PeerID);
-	}
-
-	void Peer::SendInterested()
-	{
-		Wire::SendInterested(m_Socket);
-	}
-
-	void Peer::ReceiveHandshake()
-	{
-		std::string infoHash;
-		std::string peerId;
-
-		try
-		{
-			Wire::ReceiveHandshake(m_Socket, infoHash, peerId);
-		}
-		catch (const std::exception& e)
-		{
-			m_Socket = nullptr;
-			return;
-		}
-
-		if (m_Client->m_InfoHash != infoHash)
-		{
-			std::cout << "wrong info_hash, bad handshake" << std::endl;
-			m_Socket = nullptr;
-			return;
-		}
-
-		std::cout << "handshake complete, got peer id: " << peerId << std::endl;
-	}
-
-	void Peer::ReceiveMessage()
-	{
-		unsigned int len = 0;
-		Wire::PeerMessageID id;
-		
-		try
-		{
-			id = Wire::ReceiveMessageHeader(m_Socket, len);
-		}
-		catch (const std::exception& e)
-		{
-			m_Socket = nullptr;
-			return;
-		}
-
-		switch (id)
-		{
-		case Wire::PeerMessageID::Choke:
-			OnChoke();
+			QueueReceiveMessage();
 			break;
-		case Wire::PeerMessageID::Unchoke:
-			OnUnchoke();
+		case PeerMessageType::Interested:
+			m_Interested = true;
+			QueueReceiveMessage();
 			break;
-		case Wire::PeerMessageID::Interested:
-			OnInterested();
+		case PeerMessageType::NotInterested:
+			m_Interested = false;
+			QueueReceiveMessage();
 			break;
-		case Wire::PeerMessageID::NotInterested:
-			OnNotInterested();
+		case PeerMessageType::Have:
+			HandleReceiveHaveHeader();
 			break;
-		case Wire::PeerMessageID::Have:
-			OnHave(Wire::ReceiveHaveMessage(m_Socket));
+		case PeerMessageType::Bitfield:
+			HandleReceiveBitfieldHeader(len - 1);
 			break;
-		case Wire::PeerMessageID::Bitfield:
-			OnBitfield(Wire::ReceiveBitfieldMessage(m_Socket, len));
+		case PeerMessageType::Request:
+			QueueReceiveMessage();
 			break;
-		case Wire::PeerMessageID::Request:
-			OnRequest();
+		case PeerMessageType::Piece:
+			HandleReceivePieceHeader(len - 1);
 			break;
-		case Wire::PeerMessageID::Piece:
-			OnPiece(Wire::ReceivePiece(m_Socket, len));
+		case PeerMessageType::Cancel:
+			QueueReceiveMessage();
 			break;
-		case Wire::PeerMessageID::Cancel:
-			OnCancel();
-			break;
-		case Wire::PeerMessageID::Port:
-			OnPort();
+		case PeerMessageType::Port:
+			QueueReceiveMessage();
 			break;
 		default:
-			int x = 0;
+			std::cout << "invalid msg id:" << (int)id << std::endl;
 			break;
 		}
-
-		m_LastMessageTime = Timer::GetTime(); 
 	}
 
-	void Peer::OnKeepAlive()
+	void Peer::HandleReceiveHaveHeader()
 	{
+		auto haveBuffer = std::make_shared<int>();
+
+		boost::asio::async_read
+		(
+			*m_Socket,
+			boost::asio::buffer(haveBuffer.get(), sizeof(int)),
+			boost::bind(&Peer::HandleReceiveHave, this, haveBuffer, boost::asio::placeholders::error)
+		);
 	}
 
-	void Peer::OnChoke()
+	void Peer::HandleReceiveHave(std::shared_ptr<int> index, const boost::system::error_code& error)
 	{
-		m_Choked = true;
+		auto idx = _byteswap_ulong(*index);
+		m_PieceAvailability[idx] = true;
+
+		QueueReceiveMessage();
 	}
 
-	void Peer::OnUnchoke()
+	void Peer::HandleReceiveBitfieldHeader(size_t len)
 	{
-		m_Choked = false;
+		auto bitfieldBuffer = std::make_shared<std::vector<char>>(len);
+		bitfieldBuffer->resize(len);
+
+		boost::asio::async_read
+		(
+			*m_Socket,
+			boost::asio::buffer(bitfieldBuffer->data(), bitfieldBuffer->size()),
+			boost::bind(&Peer::HandleReceiveBitfield, this, bitfieldBuffer, boost::asio::placeholders::error)
+		);
 	}
 
-	void Peer::OnInterested()
+	void Peer::HandleReceiveBitfield(std::shared_ptr<std::vector<char>> bitfield, const boost::system::error_code& error)
 	{
-		m_Interested = true;
-	}
-
-	void Peer::OnNotInterested()
-	{
-		m_Interested = false;
-	}
-
-	void Peer::OnHave(size_t pieceIndex)
-	{
-		if (pieceIndex > m_PieceAvailability.size())
-		{
-			std::cout << "invalid piece index: " << pieceIndex << std::endl;
-			return;
-		}
-
-		m_PieceAvailability[pieceIndex] = true;
-	}
-
-	void Peer::OnBitfield(const std::vector<bool>& bitfield)
-	{
-		if (bitfield.size() < m_PieceAvailability.size())
-		{
-			std::cout << "bad bitfield" << std::endl;
-			m_Socket = nullptr;
-			return;
-		}
-
 		for (auto i = 0u; i < m_PieceAvailability.size(); i++)
 		{
-			if (bitfield[i] == true)
+			if ((*bitfield)[i / 8] & (1 << ((8 - i % 8) - 1)))
 			{
 				m_PieceAvailability[i] = true;
 			}
 		}
+
+		QueueReceiveMessage();
 	}
 
-	void Peer::OnRequest()
+	void Peer::HandleReceivePieceHeader(size_t len)
 	{
-		unsigned int index;
-		m_Socket->Receive(index);
-		index = ByteSwap(index);
+		auto pieceBuffer = std::make_shared<std::vector<char>>(len);
+		pieceBuffer->resize(len);
 
-		unsigned int begin;
-		m_Socket->Receive(begin);
-		begin = ByteSwap(begin);
-
-		unsigned int len;
-		m_Socket->Receive(len);
-		len = ByteSwap(len);
-
-		std::cout << "request" << std::endl;
+		boost::asio::async_read
+		(
+			*m_Socket,
+			boost::asio::buffer(pieceBuffer->data(), pieceBuffer->size()),
+			boost::bind(&Peer::HandleReceivePiece, this, pieceBuffer, boost::asio::placeholders::error)
+		);
 	}
 
-	void Peer::OnPiece(const Wire::PieceBlock& block)
+	void Peer::HandleReceivePiece(std::shared_ptr<std::vector<char>> data, const boost::system::error_code& error)
 	{
-		for (auto c : block.data)
+		m_BandwidthDown.AddPacket(data->size());
+		QueueReceiveMessage();
+
+		m_CurrentPieceOffset += m_RequestSize;
+		if (m_CurrentPieceOffset < m_PieceLength)
 		{
-			m_CurrentPieceData.push_back(c);
+			HandleSendRequest(m_CurrentPiece, m_CurrentPieceOffset, m_RequestSize);
 		}
-		m_CurrentPieceRequested = false;
-	}
+		else
+		{
+			std::cout << "got piece: " << m_CurrentPiece << std::endl;
 
-	void Peer::OnCancel()
-	{
-		std::vector<char> payload;
-		m_Socket->Receive(payload, 12);
-		std::cout << "cancel" << std::endl;
-	}
-
-	void Peer::OnPort()
-	{
-		std::vector<char> payload;
-		m_Socket->Receive(payload, 2);
-		std::cout << "port" << std::endl;
+			if (m_WarmUp)
+			{
+				m_AverageBandwidth = m_BandwidthDown.GetAverageBandwidth();
+				m_WarmUp = false;
+				m_State = PeerState::Idle;
+			}
+		}
 	}
 
 }

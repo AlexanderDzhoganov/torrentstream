@@ -2,13 +2,18 @@
 #include <iostream>
 #include <string>
 #include <regex>
+#include <thread>
 #include <assert.h>
 #include <sstream>
 #include <unordered_map>
 
+#include <boost/asio.hpp>
+
+#include "ASIOThreadPool.h"
 #include "StringFacility.h"
-#include "Socket.h"
 #include "HTTP.h"
+
+using boost::asio::ip::tcp;
 
 namespace TorrentStream
 {
@@ -37,18 +42,21 @@ namespace TorrentStream
 
 			result.path = query[0];
 			
-			auto args = split(query[1], '&');
-			for (auto& keyval : args)
+			if (query.size() > 1)
 			{
-				auto kv = split(keyval, '=');
-				auto key = kv[0];
-				std::string val = "";
-				if (kv.size() > 1)
+				auto args = split(query[1], '&');
+				for (auto& keyval : args)
 				{
-					val = kv[1];
-				}
+					auto kv = split(keyval, '=');
+					auto key = kv[0];
+					std::string val = "";
+					if (kv.size() > 1)
+					{
+						val = kv[1];
+					}
 
-				result.arguments[key] = val;
+					result.arguments[key] = val;
+				}
 			}
 
 			return result;
@@ -58,65 +66,64 @@ namespace TorrentStream
 		{
 			assert(url.scheme == "http");
 
-			Socket::Socket socket;
-			if (!socket.Open(url.authority, "80"))
+			auto& service = ASIO::ThreadPool::Instance().GetService();
+			tcp::socket socket(service);
+			tcp::resolver resolver(service);
+
+			auto ipPort = split(url.authority, ':');
+
+			std::string ip = ipPort[0];
+			std::string port;
+
+			if (ipPort.size() == 1)
 			{
-				throw FailedToConnect();
+				port = "80";
+			}
+			else
+			{
+				port = ipPort[1];
 			}
 
-			std::string request = xs("GET /%?% HTTP/1.0\r\nHost: %\r\nUser-Agent: Unspecified\r\n\r\n", url.path, url.GetArgumentsString(), url.authority);
+			std::cout << "Connecting to " << ip << ":" << port << std::endl;
 
-			auto sent = socket.Send(std::vector<char>(request.begin(), request.end()));
+			boost::asio::connect(socket, resolver.resolve({ ip, port }));
 
-			std::vector<char> resp;
-			resp.resize(32000);
+			boost::asio::streambuf request;
+			std::ostream request_stream(&request);
 
-			auto bytesReceived = socket.Receive(resp, 32000);
+			request_stream << "GET /" << url.path << "?" << url.GetArgumentsString() << " HTTP/1.0\r\n";
+			request_stream << "Host: " << url.authority << "\r\n\r\n";
 
-			auto rawResponse = std::string(resp.data(), bytesReceived);
+			boost::asio::write(socket, request);
 
-			auto response = split(rawResponse, '\n');
-			auto status = split(response[0], ' ');
-			auto statusCode = std::stoi(status[1]);
+			boost::system::error_code error;
+			boost::asio::streambuf buffer;
+			boost::asio::read_until(socket, buffer, "\r\n", error);
 
-			bool inContent = false;
-			std::string content = "";
+			std::istream stream(&buffer);
+			
+			std::string httpVersion;
+			stream >> httpVersion;
+			unsigned int statusCode;
+			stream >> statusCode;
 
-			for (auto& line : response)
+			boost::asio::read_until(socket, buffer, "\r\n\r\n", error);
+
+			std::string header;
+			while (std::getline(stream, header) && header != "\r")
+				std::cout << header << "\n";
+
+			while (boost::asio::read(socket, buffer, boost::asio::transfer_at_least(1), error))
 			{
-				if (inContent)
+				if (error == boost::asio::error::eof)
 				{
-					content = content + line + "\n";
-				}
-				else
-				{
-					if (line == "")
-					{
-						inContent = true;
-					}
-				}
-			}
-
-			bool inData = false;
-			std::vector<char> responseV;
-			for (auto i = 0u; i < bytesReceived; i++)
-			{
-				if (resp[i] == '\r' && resp[i + 1] == '\n' && resp[i + 2] == '\r' && resp[i + 3] == '\n')
-				{
-					inData = true;
-					i += 4;
-				}
-
-				if (inData)
-				{
-					responseV.push_back(resp[i]);
+					break;
 				}
 			}
 
 			HTTPResponse result;
 			result.statusCode = statusCode;
-			result.content = responseV;
-
+			result.content = std::vector<char>(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
 			return result;
 		}
 

@@ -12,7 +12,7 @@
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
 #include "MetadataFile.h"
-#include "../extern/hashlib2plus/hashlibpp.h"
+#include "extern/hashlib2plus/hashlibpp.h"
 
 namespace TorrentStream
 {

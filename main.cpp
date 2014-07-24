@@ -1,15 +1,21 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <deque>
 #include <string>
 #include <sstream>
 #include <thread>
 #include <mutex>
 #include <memory>
+#include <set>
 #include <fstream>
 #include <assert.h>
 
+#include <boost/asio.hpp>
+#include "ASIOThreadPool.h"
+
 #include "Timer.h"
+#include "BandwidthTracker.h"
 #include "Filesystem.h"
 #include "StringFacility.h"
 #include "BinaryString.h"
@@ -24,13 +30,14 @@
 #include "File.h"
 #include "Client.h"
 
+
 using namespace TorrentStream;
 
 int main()
 {
 	Timer::Initialize();
 
-	std::ifstream f("../test.torrent", std::ios::binary);
+	std::ifstream f("test.torrent", std::ios::binary);
 	if (!f.is_open())
 	{
 		throw std::exception();
@@ -40,12 +47,13 @@ int main()
 
 	auto metadata = std::make_shared<MetadataFile>(contents);
 
+	
 	metadata->PrintInfo();
 
-	Client client(metadata, "C:\\dev\\ts\\test\\");
+	Client client(metadata, "test\\");
 
 	client.Start();
 	client.Stop();
-
+	
 	return 0;
 }

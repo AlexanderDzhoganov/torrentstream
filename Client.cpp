@@ -1,15 +1,19 @@
-#include <string>
 #include <sstream>
+#include <deque>
 #include <vector>
 #include <unordered_map>
 #include <ctime>
 #include <iostream>
+#include <string>
 #include <assert.h>
 #include <memory>
 #include <thread>
 #include <mutex>
 
+#include <boost/asio.hpp>
+
 #include "Timer.h"
+#include "BandwidthTracker.h"
 #include "Filesystem.h"
 #include "StringFacility.h"
 #include "BinaryString.h"
@@ -66,10 +70,151 @@ namespace TorrentStream
 		}
 	}
 
+	void Client::CleanUpPeers()
+	{
+		for (auto it = m_Fresh.begin(); it != m_Fresh.end(); ++it)
+		{
+			if ((*it).second == nullptr || (*it).second->GetState() == PeerState::Error)
+			{
+				it = m_Fresh.erase(it);
+				if (it == m_Fresh.end())
+				{
+					break;
+				}
+			}
+		}
+
+		for (auto it = m_WarmUp.begin(); it != m_WarmUp.end(); ++it)
+		{
+			if ((*it).second == nullptr || (*it).second->GetState() == PeerState::Error)
+			{
+				it = m_WarmUp.erase(it);
+				if (it == m_WarmUp.end())
+				{
+					break;
+				}
+			}
+		}
+
+		for (auto it = m_Cold.begin(); it != m_Cold.end(); ++it)
+		{
+			if ((*it).second == nullptr || (*it).second->GetState() == PeerState::Error)
+			{
+				it = m_Cold.erase(it);
+				if (it == m_Cold.end())
+				{
+					break;
+				}
+			}
+		}
+
+		for (auto it = m_Hot.begin(); it != m_Hot.end(); ++it)
+		{
+			if ((*it).second == nullptr || (*it).second->GetState() == PeerState::Error)
+			{
+				it = m_Hot.erase(it);
+				if (it == m_Hot.end())
+				{
+					break;
+				}
+			}
+		}
+	}
+
 	void Client::Start()
 	{
 		std::cout << "Starting client" << std::endl;
 		
+		StartTracker();
+
+		auto nextCheckTime = Timer::GetTime() + 0.1f;
+
+		// warm-up phase
+		for (;;)
+		{
+			if (Timer::GetTime() < nextCheckTime)
+			{
+				continue;
+			}
+
+			nextCheckTime = Timer::GetTime() + 0.1f;
+			CleanUpPeers();
+
+			if (m_Cold.size() > 16)
+			{
+				break;
+			}
+
+			for (auto& peer : m_Fresh)
+			{
+				if (peer.second == nullptr)
+				{
+					continue;
+				}
+
+				if (peer.second->GetState() == PeerState::Disconnected)
+				{
+					peer.second->Connect();
+				}
+				else if (peer.second->GetState() == PeerState::Idle && m_WarmUp.size() < 8)
+				{
+					peer.second->WarmUp();
+					m_WarmUp[peer.first] = std::move(peer.second);
+				}
+			}
+
+			for (auto& peer : m_WarmUp)
+			{
+				if (peer.second == nullptr)
+				{
+					continue;
+				}
+
+				if (peer.second->GetState() == PeerState::Idle)
+				{
+					m_Cold[peer.first] = std::move(peer.second);
+				}
+			}
+		}
+
+		std::vector<std::pair<size_t, std::unique_ptr<Peer>>> cold;
+		
+		for (auto& peer : m_Cold)
+		{
+			cold.push_back(std::make_pair(peer.second->GetAverageBandwidth(), std::move(peer.second)));
+		}
+
+		m_Cold.clear();
+
+		std::sort(cold.begin(), cold.end(), [](const std::pair<size_t, std::unique_ptr<Peer>>& left, const std::pair<size_t, std::unique_ptr<Peer>>& right) { return left.first < right.first; });
+
+		for (auto i = 0u; i < 4; i++)
+		{
+			m_Hot[cold.back().second->GetID()] = std::move(cold.back().second);
+			cold.pop_back();
+		}
+
+		for (auto& peer : cold)
+		{
+			m_Cold[peer.second->GetID()] = std::move(peer.second);
+		}
+
+		// download phase
+	}
+
+	void Client::Stop()
+	{
+		auto announce = HTTP::ParseURL(m_AnnounceURL);
+
+		announce.arguments["info_hash"] = m_InfoHash;
+		announce.arguments["peer_id"] = m_PeerID;
+		announce.arguments["port"] = m_Port;
+		announce.arguments["event"] = "stopped";
+		HTTP::DoHTTPRequest(announce);
+	}
+
+	void Client::StartTracker()
+	{
 		auto announce = HTTP::ParseURL(m_AnnounceURL);
 
 		std::cout << "Tracker: " << announce.authority << std::endl;
@@ -90,7 +235,17 @@ namespace TorrentStream
 		}
 
 		auto parsed = std::make_unique<Bencode::Dictionary>(Bencode::Tokenizer::Tokenize(response.content));
-		
+
+		if (parsed->GetKey("failure reason") != nullptr)
+		{
+			auto reason = parsed->GetKey<Bencode::ByteString>("failure reason");
+			auto bytes = reason->GetBytes();
+			std::string reasonString(bytes.begin(), bytes.end());
+
+			std::cout << "tracker request failed: " << reasonString << std::endl;
+			return;
+		}
+
 		auto peersList = (Bencode::List*)(parsed->GetKey("peers").get());
 		for (auto& peerObject : peersList->GetObjects())
 		{
@@ -100,97 +255,15 @@ namespace TorrentStream
 			auto port = ((Bencode::Integer*)peerDict->GetKey("port").get())->GetValue();
 			auto idBytes = ((Bencode::ByteString*)peerDict->GetKey("peer id").get())->GetBytes();
 
-			std::ostringstream ss;
-
-			ss << std::hex << std::uppercase << std::setfill('0');
-			for (int c : idBytes) {
-				ss << std::setw(2) << c;
-			}
-
 			std::string ip(ipBytes.data(), ipBytes.size());
-			std::string id = ss.str();
+			std::string id(idBytes.data(), idBytes.size());
 
-			if (m_Peers.find(id) == m_Peers.end())
+			if (m_Known.find(id) == m_Known.end())
 			{
-				auto peer = std::make_unique<Peer>(ip, port, id, this);
-				m_Peers[id] = std::move(peer);
+				m_Fresh[id] = std::make_unique<Peer>(ip, port, id, this);
+				m_Known[id] = true;
 			}
 		}
-
-		auto nextCheckTime = Timer::GetTime() + 1.0f;
-		auto nextTrackerUpdateTime = Timer::GetTime() + 20.0f;
-
-		for (;;)
-		{
-			for (auto& peer : m_Peers)
-			{
-				if (!peer.second->IsConnected())
-				{
-					m_Peers.erase(peer.first);
-					break;
-				}
-			}
-
-			if (Timer::GetTime() < nextCheckTime)
-			{
-				continue;
-			}
-
-			nextCheckTime = Timer::GetTime() + 1.0f;
-
-			auto unchoked = 0;
-			auto downloading = 0;
-
-			for (auto& peer : m_Peers)
-			{
-				if (!peer.second->IsChoked())
-				{
-					unchoked++;
-				}
-
-				if (peer.second->IsDownloading())
-				{
-					downloading++;
-				}
-			}
-
-			std::cout << "Total peers: " << m_Peers.size() << " unchoked: " << unchoked << ", downloading: " << downloading << std::endl;
-
-			auto finished = 0;
-			for (auto& piece : m_Pieces)
-			{
-				if (piece.IsComplete())
-				{
-					finished++;
-				}
-			}
-
-			std::cout << xs("% of % pieces downloaded", finished, m_Pieces.size()) << std::endl;
-
-			if (finished == m_Pieces.size())
-			{
-				std::cout << "download finished!" << std::endl;
-				m_Peers.clear();
-				return;
-			}
-
-			if (m_Peers.size() < 32 && Timer::GetTime() >= nextTrackerUpdateTime)
-			{
-				UpdateTracker();
-				nextTrackerUpdateTime = Timer::GetTime() + 20.0f;
-			}
-		}
-	}
-
-	void Client::Stop()
-	{
-		auto announce = HTTP::ParseURL(m_AnnounceURL);
-
-		announce.arguments["info_hash"] = m_InfoHash;
-		announce.arguments["peer_id"] = m_PeerID;
-		announce.arguments["port"] = m_Port;
-		announce.arguments["event"] = "stopped";
-		HTTP::DoHTTPRequest(announce);
 	}
 
 	void Client::UpdateTracker()
@@ -236,20 +309,14 @@ namespace TorrentStream
 			std::string ip(ipBytes.data(), ipBytes.size());
 			std::string id = ss.str();
 
-			if (m_Peers.find(id) == m_Peers.end())
+			if (m_Known.find(id) == m_Known.end())
 			{
-				auto peer = std::make_unique<Peer>(ip, port, id, this);
-				m_Peers[id] = std::move(peer);
+				m_Fresh[id] = std::make_unique<Peer>(ip, port, id, this);
+				m_Known[id] = true;
 			}
 		}
 
 		std::cout << "got " << peersList->GetObjects().size() << " peers" << std::endl;
-	}
-
-	void Client::SubmitData(size_t pieceIndex, size_t pieceOffset, const std::vector<char>& data)
-	{
-		std::unique_lock<std::mutex> _(m_PiecesMutex);
-		m_Pieces[pieceIndex].SubmitData(pieceOffset, data);
 	}
 
 }

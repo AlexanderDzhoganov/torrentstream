@@ -10,7 +10,10 @@
 #include <mutex>
 
 #include "StringFacility.h"
+#include "BinaryString.h"
+#include "Filesystem.h"
 #include "Socket.h"
+#include "Wire.h"
 #include "HTTP.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"

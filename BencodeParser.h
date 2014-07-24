@@ -32,7 +32,7 @@ namespace TorrentStream
 		{
 
 			public:
-			Integer(int value) : m_Value(value) {}
+			Integer(size_t value) : m_Value(value) {}
 
 			Integer(const std::vector<std::shared_ptr<Token>>& stream);
 
@@ -48,7 +48,7 @@ namespace TorrentStream
 				return s.str();
 			}
 
-			int GetValue() const
+			size_t GetValue() const
 			{
 				return m_Value;
 			}
@@ -60,7 +60,7 @@ namespace TorrentStream
 			}
 
 			private:
-			int m_Value = 0;
+				size_t m_Value = 0;
 
 		};
 
