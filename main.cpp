@@ -26,8 +26,7 @@
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
 #include "MetadataFile.h"
-#include "Socket.h"
-#include "Wire.h"
+
 #include "HTTP.h"
 #include "Piece.h"
 #include "Peer.h"

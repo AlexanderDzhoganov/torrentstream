@@ -28,8 +28,6 @@
 #include "Timer.h"
 #include "BandwidthTracker.h"
 
-#include "Socket.h"
-#include "Wire.h"
 #include "HTTP.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"

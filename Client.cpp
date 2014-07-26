@@ -21,8 +21,6 @@
 #include "Filesystem.h"
 #include "StringFacility.h"
 #include "BinaryString.h"
-#include "Socket.h"
-#include "Wire.h"
 #include "HTTP.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
