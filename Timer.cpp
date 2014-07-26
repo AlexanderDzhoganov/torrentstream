@@ -24,4 +24,4 @@ namespace TorrentStream
 		return double(li.QuadPart - CounterStart) / PCFreq;
 	}
 
-};
+}

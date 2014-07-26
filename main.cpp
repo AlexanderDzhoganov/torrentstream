@@ -11,8 +11,12 @@
 #include <fstream>
 #include <assert.h>
 
+#include "Log.h"
+
 #include <boost/asio.hpp>
 #include "ASIOThreadPool.h"
+#include "ASIOPeerMessage.h"
+#include "ASIOPeerComm.h"
 
 #include "Timer.h"
 #include "BandwidthTracker.h"
@@ -25,8 +29,8 @@
 #include "Socket.h"
 #include "Wire.h"
 #include "HTTP.h"
-#include "Peer.h"
 #include "Piece.h"
+#include "Peer.h"
 #include "File.h"
 #include "Client.h"
 
@@ -47,7 +51,6 @@ int main()
 
 	auto metadata = std::make_shared<MetadataFile>(contents);
 
-	
 	metadata->PrintInfo();
 
 	Client client(metadata, "test\\");

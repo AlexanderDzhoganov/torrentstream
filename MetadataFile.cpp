@@ -3,10 +3,15 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <deque>
 #include <memory>
 #include <unordered_map>
 #include <assert.h>
 #include <iostream>
+#include <thread>
+#include <mutex>
+
+#include "Log.h"
 
 #include "StringFacility.h"
 #include "BencodeTokenizer.h"
@@ -201,7 +206,7 @@ namespace TorrentStream
 
 	void MetadataFile::PrintInfo()
 	{
-		std::cout << m_Contents->ToString() << std::endl;
+		LOG(m_Contents->ToString());
 	}
 
 	Bencode::Dictionary* MetadataFile::GetInfoSection()

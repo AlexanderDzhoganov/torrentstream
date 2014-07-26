@@ -266,41 +266,6 @@ class hashwrapper
 		 *  @throw	Throws a hlException if the specified file could not
 		 *  		be opened.
 		 */  
-		virtual std::string getHashFromFile(std::string filename)
-		{
-			FILE *file;
-			int len;
-			unsigned char buffer[1024];
-
-			/*
-			 * reset the current hash context
-			 */
-			resetContext();
-
-			/*
-			 * open the specified file
-			 */
-			if((file = fopen(filename.c_str(), "rb")) == NULL)
-			{
-				throw hlException(HL_FILE_READ_ERROR,
-						  "Cannot read file \"" + 
-						  filename + 
-						  "\".");
-			}
-
-			/*
-			 * read the file in 1024b blocks and
-			 * update the context for every block
-			 */
-			while( (len = fread(buffer,1,1024,file)) )
-			{
-				updateContext(buffer, len);
-			}
-
-			//close the file and create the hash
-			fclose(file);
-			return(hashIt());
-		}
 }; 
 
 //----------------------------------------------------------------------	

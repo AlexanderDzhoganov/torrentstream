@@ -8,28 +8,42 @@ namespace TorrentStream
 	{
 
 		public:
+		Piece(size_t size) : m_Size(size)
+		{
+			m_Data.resize(m_Size);
+		}
+
 		Piece(size_t size, const std::vector<char>& hash) : m_Size(size), m_Hash(hash)
 		{
 		}
 
 		void SubmitData(size_t offset, const std::vector<char>& data)
 		{
-			m_Data.resize(data.size());
-			std::copy(data.begin(), data.end(), m_Data.begin() + offset);
-			m_IsComplete = true;
+			if (offset + data.size() > m_Size)
+			{
+				std::cout << "data out of bounds" << std::endl;
+				return;
+			}
+
+			memcpy(m_Data.data() + offset, data.data(), data.size());
 		}
 
-		bool CheckHash()
+		const std::vector<char>& GetHash() const
 		{
-			return true;
+			return m_Hash;
+		}
+
+		void SetHash(const std::vector<char>& hash)
+		{
+			m_Hash = hash;
 		}
 		
-		std::vector<char> GetData()
+		const std::vector<char>& GetData() const
 		{
 			return m_Data;
 		}
 
-		bool IsComplete()
+		bool IsComplete() const
 		{
 			return m_IsComplete;
 		}

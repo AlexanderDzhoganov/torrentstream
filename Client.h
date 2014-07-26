@@ -30,6 +30,8 @@ namespace TorrentStream
 		{
 			return m_PieceLength;
 		}
+
+		bool CheckPieceHash(size_t index, const std::vector<char>& expected);
 		/*
 		size_t CountFreshPeers(PeerState state) const
 		{
