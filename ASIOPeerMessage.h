@@ -138,7 +138,7 @@ namespace TorrentStream
 			{
 
 				public:
-				Have(size_t index) : Message(MessageType::Have)
+				Have(uint32_t index) : Message(MessageType::Have)
 				{
 					WriteUint32(m_Payload, index);
 				}
@@ -147,7 +147,7 @@ namespace TorrentStream
 				{
 				}
 
-				size_t GetIndex()
+				uint32_t GetIndex()
 				{
 					return ReadUint32(m_Payload, 0);
 				}
@@ -181,7 +181,7 @@ namespace TorrentStream
 			{
 
 				public:
-				Request(size_t index, size_t begin, size_t len) : Message(MessageType::Request)
+				Request(uint32_t index, uint32_t begin, uint32_t len) : Message(MessageType::Request)
 				{
 					WriteUint32(m_Payload, index);
 					WriteUint32(m_Payload, begin);
@@ -192,17 +192,17 @@ namespace TorrentStream
 				{
 				}
 
-				size_t GetIndex()
+				uint32_t GetIndex()
 				{
 					return ReadUint32(m_Payload, 0);
 				}
 
-				size_t GetBegin()
+				uint32_t GetBegin()
 				{
 					return ReadUint32(m_Payload, 4);
 				}
 
-				size_t GetLength()
+				uint32_t GetLength()
 				{
 					return ReadUint32(m_Payload, 8);
 				}
@@ -213,7 +213,7 @@ namespace TorrentStream
 			{
 
 				public:
-				Piece(size_t index, size_t begin, const std::vector<char>& block) : Message(MessageType::Piece)
+				Piece(uint32_t index, uint32_t begin, const std::vector<char>& block) : Message(MessageType::Piece)
 				{
 					WriteUint32(m_Payload, index);
 					WriteUint32(m_Payload, begin);
@@ -224,12 +224,12 @@ namespace TorrentStream
 				{
 				}
 
-				size_t GetIndex()
+				uint32_t GetIndex()
 				{
 					return ReadUint32(m_Payload, 0);
 				}
 
-				size_t GetBegin()
+				uint32_t GetBegin()
 				{
 					return ReadUint32(m_Payload, 4);
 				}
@@ -245,7 +245,7 @@ namespace TorrentStream
 			{
 
 				public:
-				Cancel(size_t index, size_t begin, size_t length) : Message(MessageType::Cancel)
+				Cancel(uint32_t index, uint32_t begin, uint32_t length) : Message(MessageType::Cancel)
 				{
 					WriteUint32(m_Payload, index);
 					WriteUint32(m_Payload, begin);
@@ -277,7 +277,7 @@ namespace TorrentStream
 			{
 
 				public:
-				Port(size_t port) : Message(MessageType::Port)
+				Port(uint32_t port) : Message(MessageType::Port)
 				{
 					WriteUint32(m_Payload, port);
 				}

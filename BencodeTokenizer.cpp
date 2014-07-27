@@ -40,8 +40,7 @@ namespace TorrentStream
 
 					i += len;
 
-					size_t value = std::stoull(integerString);
-					auto integer = std::make_unique<IntegerToken>(value);
+					auto integer = std::make_unique<IntegerToken>(std::stoull(integerString));
 
 					tokenized.push_back(std::move(integer));
 				}

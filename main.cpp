@@ -33,14 +33,18 @@
 #include "File.h"
 #include "Client.h"
 
-
 using namespace TorrentStream;
 
-int main()
+int main(int argc, char** argv)
 {
+	if (argc == 1)
+	{
+		return 1;
+	}
+
 	Timer::Initialize();
 
-	std::ifstream f("test.torrent", std::ios::binary);
+	std::ifstream f(argv[1], std::ios::binary);
 	if (!f.is_open())
 	{
 		throw std::exception();
@@ -50,11 +54,19 @@ int main()
 
 	auto metadata = std::make_shared<MetadataFile>(contents);
 
-	metadata->PrintInfo();
+	for (auto i = 0u; i < metadata->GetFilesCount(); i++)
+	{
+		std::cout << "[" << i << "] " << metadata->GetFileName(i) << std::endl;
+	}
+	
+	std::cout << "Select file to play" << std::endl;
 
-	Client client(metadata, "test\\");
+	int selected = 0;
+	std::cin >> selected;
 
-	client.Start();
+	Client client(metadata, "");
+
+	client.Start(selected);
 	client.Stop();
 	
 	return 0;

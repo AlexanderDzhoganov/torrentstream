@@ -56,22 +56,22 @@ namespace TorrentStream
 		return std::string(announceStringBytes.data(), announceStringBytes.size());
 	}
 
-	size_t MetadataFile::GetPieceLength()
+	uint64_t MetadataFile::GetPieceLength()
 	{
 		auto info = GetInfoSection();
 		auto pieceLength = info->GetKey<Bencode::Integer>("piece length");
 		return pieceLength->GetValue();
 	}
 
-	size_t MetadataFile::GetPieceCount()
+	uint64_t MetadataFile::GetPieceCount()
 	{
-		return (size_t)ceil((float)GetTotalSize() / (float)GetPieceLength());
+		return (uint64_t)ceil((double)GetTotalSize() / (double)GetPieceLength());
 	}
 
-	size_t MetadataFile::GetTotalSize()
+	uint64_t MetadataFile::GetTotalSize()
 	{
 		auto info = GetInfoSection();
-		size_t totalSize = 0;
+		uint64_t totalSize = 0;
 		auto files = info->GetKey<Bencode::List>("files");
 		
 		if (files != nullptr)
@@ -166,7 +166,7 @@ namespace TorrentStream
 		}
 	}
 
-	size_t MetadataFile::GetFileSize(size_t index)
+	uint64_t MetadataFile::GetFileSize(size_t index)
 	{
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
@@ -190,7 +190,7 @@ namespace TorrentStream
 		}
 	}
 
-	std::pair<size_t, size_t> MetadataFile::GetFileStart(size_t index)
+	std::pair<uint64_t, uint64_t> MetadataFile::GetFileStart(size_t index)
 	{
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
@@ -202,20 +202,20 @@ namespace TorrentStream
 				throw InvalidFileIndex();
 			}
 
-			size_t pieceSize = GetPieceLength();
+			uint64_t pieceSize = GetPieceLength();
 
-			std::vector<size_t> fileStarts;
+			std::vector<uint64_t> fileStarts;
 
 			size_t fileCount = GetFilesCount();
-			auto currentPos = 0u;
+			uint64_t currentPos = 0u;
 			for (auto i = 0u; i < fileCount; i++)
 			{
 				fileStarts.push_back(currentPos);
 				currentPos += GetFileSize(i);
 			}
 
-			size_t startPiece = fileStarts[index] / pieceSize;
-			size_t pieceOffset = fileStarts[index] % pieceSize;
+			uint64_t startPiece = fileStarts[index] / pieceSize;
+			uint64_t pieceOffset = fileStarts[index] % pieceSize;
 
 			return std::make_pair(startPiece, pieceOffset);
 		}
@@ -225,7 +225,7 @@ namespace TorrentStream
 		}
 	}
 
-	std::pair<size_t, size_t> MetadataFile::GetFileEnd(size_t index)
+	std::pair<uint64_t, uint64_t> MetadataFile::GetFileEnd(size_t index)
 	{
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
@@ -237,27 +237,27 @@ namespace TorrentStream
 				throw InvalidFileIndex();
 			}
 
-			size_t pieceSize = GetPieceLength();
+			uint64_t pieceSize = GetPieceLength();
 
-			std::vector<size_t> fileEnds;
+			std::vector<uint64_t> fileEnds;
 
 			size_t fileCount = GetFilesCount();
-			auto currentPos = 0u;
+			uint64_t currentPos = 0u;
 			for (auto i = 0u; i < fileCount; i++)
 			{
 				currentPos += GetFileSize(i);
 				fileEnds.push_back(currentPos);
 			}
 
-			size_t endPiece = fileEnds[index] / pieceSize;
-			size_t pieceOffset = fileEnds[index] % pieceSize;
+			uint64_t endPiece = fileEnds[index] / pieceSize;
+			uint64_t pieceOffset = fileEnds[index] % pieceSize;
 
 			return std::make_pair(endPiece, pieceOffset);
 		}
 		else
 		{
-			size_t pieceSize = GetPieceLength();
-			size_t pieceOffset = GetFileSize(0) % pieceSize;
+			uint64_t pieceSize = GetPieceLength();
+			uint64_t pieceOffset = GetFileSize(0) % pieceSize;
 			return std::make_pair(GetPieceCount() - 1, pieceOffset);
 		}
 	}

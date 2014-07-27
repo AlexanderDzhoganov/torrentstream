@@ -26,11 +26,11 @@ namespace TorrentStream
 
 		std::string GetAnnounceURL();
 
-		size_t GetPieceLength();
+		uint64_t GetPieceLength();
 
-		size_t GetPieceCount();
+		uint64_t GetPieceCount();
 
-		size_t GetTotalSize();
+		uint64_t GetTotalSize();
 
 		size_t GetFilesCount();
 
@@ -38,11 +38,11 @@ namespace TorrentStream
 
 		std::string GetFileName(size_t index);
 
-		size_t GetFileSize(size_t index);
+		uint64_t GetFileSize(size_t index);
 
-		std::pair<size_t, size_t> GetFileStart(size_t index);
+		std::pair<uint64_t, uint64_t> GetFileStart(size_t index);
 
-		std::pair<size_t, size_t> GetFileEnd(size_t index);
+		std::pair<uint64_t, uint64_t> GetFileEnd(size_t index);
 
 		void PrintInfo();
 

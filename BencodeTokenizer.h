@@ -57,20 +57,20 @@ namespace TorrentStream
 		class IntegerToken : public Token
 		{
 			public:
-				IntegerToken(size_t value) : m_Value(value) {}
+			IntegerToken(uint64_t value) : m_Value(value) {}
 
 			TokenType GetType()
 			{
 				return TokenType::INTEGER;
 			}
 
-			size_t GetValue()
+			uint64_t GetValue()
 			{
 				return m_Value;
 			}
 
 			private:
-			size_t m_Value = 0;
+			uint64_t m_Value = 0;
 
 		};
 

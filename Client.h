@@ -13,7 +13,7 @@ namespace TorrentStream
 
 		~Client() {}
 
-		void Start();
+		void Start(size_t fileToPlay);
 
 		void Stop();
 
@@ -21,51 +21,24 @@ namespace TorrentStream
 
 		void UpdateTracker();
 
-		size_t GetPiecesCount() const
+		uint64_t GetPiecesCount() const
 		{
 			return m_PieceCount;
 		}
 
-		size_t GetPieceLength() const
+		uint64_t GetPieceLength() const
 		{
 			return m_PieceLength;
 		}
 
-		size_t GetTotalSize() const
+		uint64_t GetTotalSize() const
 		{
 			return m_Metadata->GetTotalSize();
 		}
 
 		bool CheckPieceHash(size_t index, const std::vector<char>& expected);
-		/*
-		size_t CountFreshPeers(PeerState state) const
-		{
-			size_t count = 0;
-			for (auto& peer : m_Fresh) if (peer.second->GetState() == state) count++;
-			return count;
-		}
-
-		size_t CountWarmUpPeers(PeerState state) const
-		{
-			size_t count = 0;
-			for (auto& peer : m_WarmUp) if (peer.second->GetState() == state) count++;
-			return count;
-		}
-
-		size_t CountHotPeers(PeerState state) const
-		{
-			size_t count = 0;
-			for (auto& peer : m_Hot) if (peer.second->GetState() == state) count++;
-			return count;
-		}
-
-		size_t CountColdPeers(PeerState state) const
-		{
-			size_t count = 0;
-			for (auto& peer : m_Cold) if (peer.second->GetState() == state) count++;
-			return count;
-		}
-		*/
+		
+		void WriteOutPiece(size_t index);
 
 		private:
 		void CleanUpPeers();
@@ -79,10 +52,11 @@ namespace TorrentStream
 		std::string m_Port = "6881";
 
 		std::vector<std::unique_ptr<File>> m_Files;
+		size_t m_FileToPlay = 0;
 
 		std::vector<Piece> m_Pieces;
-		size_t m_PieceLength = 0;
-		size_t m_PieceCount = 0;
+		uint64_t m_PieceLength = 0;
+		uint64_t m_PieceCount = 0;
 
 		std::unordered_map<std::string, bool> m_Known;
 		std::unordered_map<std::string, std::unique_ptr<Peer>> m_Fresh;

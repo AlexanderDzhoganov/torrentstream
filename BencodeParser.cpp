@@ -70,7 +70,7 @@ namespace TorrentStream
 			assert(stream[0]->GetType() == TokenType::LIST_BEGIN);
 			assert(stream[stream.size() - 1]->GetType() == TokenType::LIST_END);
 
-			for (auto i = 1u; i < stream.size() - 1; i++)
+			for (size_t i = 1u; i < stream.size() - 1; i++)
 			{
 				auto& token = stream[i];
 				if (token->GetType() == TokenType::INTEGER)
@@ -103,7 +103,7 @@ namespace TorrentStream
 			assert(stream[0]->GetType() == TokenType::DICTIONARY_BEGIN);
 			assert(stream[stream.size() - 1]->GetType() == TokenType::DICTIONARY_END);
 
-			for (auto i = 1u; i < stream.size() - 1; i++)
+			for (size_t i = 1u; i < stream.size() - 1; i++)
 			{
 				auto& key = stream[i];
 				assert(key->GetType() == TokenType::BYTES);

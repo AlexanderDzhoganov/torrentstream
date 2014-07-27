@@ -48,7 +48,7 @@ namespace TorrentStream
 				return s.str();
 			}
 
-			size_t GetValue() const
+			uint64_t GetValue() const
 			{
 				return m_Value;
 			}
@@ -60,7 +60,7 @@ namespace TorrentStream
 			}
 
 			private:
-				size_t m_Value = 0;
+			uint64_t m_Value = 0;
 
 		};
 
