@@ -1,6 +1,15 @@
+#include <boost/asio.hpp>
+#include <boost/asio/windows/random_access_handle.hpp>
+
+#include <Windows.h>
+
 #include <fstream>
 #include <vector>
 #include <memory>
+#include <thread>
+#include <mutex>
+
+#include "ASIOThreadPool.h"
 
 #include "Filesystem.h"
 
@@ -12,17 +21,23 @@ namespace TorrentStream
 
 		struct FileImpl
 		{
-			std::unique_ptr<std::ofstream> m_Handle;
+			HANDLE fileHandle;
+			std::unique_ptr<boost::asio::windows::random_access_handle> handle;
 		};
 
-		File::File(const std::string& path)
+		File::File(const std::string& path, size_t size)
 		{
 			m_Impl = new FileImpl();
-			m_Impl->m_Handle = std::make_unique<std::ofstream>(path, std::ios::binary);
-			if (!m_Impl->m_Handle->is_open())
+
+			m_Impl->fileHandle = ::CreateFile(path.c_str(), GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+
+			if (m_Impl->fileHandle == INVALID_HANDLE_VALUE)
 			{
-				throw FileOpenError();
+				auto err = GetLastError();
+				return;
 			}
+
+			m_Impl->handle = std::make_unique<boost::asio::windows::random_access_handle>(ASIO::ThreadPool::Instance().GetService(), m_Impl->fileHandle);
 		}
 
 		File::~File()
@@ -30,14 +45,9 @@ namespace TorrentStream
 			delete m_Impl;
 		}
 
-		void File::WriteBytes(const std::vector<char>& bytes)
+		void File::WriteBytes(size_t offset, const std::vector<char>& bytes)
 		{
-			m_Impl->m_Handle->write(bytes.data(), bytes.size());
-
-			if (m_Impl->m_Handle->failbit || m_Impl->m_Handle->badbit)
-			{
-				throw FileWriteError();
-			}
+			m_Impl->handle->write_some_at(offset, boost::asio::buffer(bytes.data(), bytes.size()));
 		}
 
 	}

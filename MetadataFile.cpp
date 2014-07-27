@@ -10,6 +10,7 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
+#include <algorithm>
 
 #include "Log.h"
 
@@ -24,15 +25,28 @@ namespace TorrentStream
 
 	MetadataFile::MetadataFile(const std::vector<char>& contents)
 	{
+		ExtractInfoHash(contents);
+
 		auto tokenized = Bencode::Tokenizer::Tokenize(contents);
 		m_Contents = std::make_unique<Bencode::Dictionary>(tokenized);
 	}
 
-	std::string MetadataFile::GetInfoHash()
+	void MetadataFile::ExtractInfoHash(const std::vector<char>& contents)
 	{
-		auto info = GetInfoSection();
-		auto data = info->Encode();
-		return sha1wrapper().getHashFromBytes((unsigned char*)data.data(), data.size());
+		size_t infoStart = 0;
+		for (auto i = 0u; i < contents.size(); i++)
+		{
+			if (contents[i] == 'i' && contents[i + 1] == 'n' && contents[i + 2] == 'f' && contents[i + 3] == 'o')
+			{
+				infoStart = i + 4;
+				break;
+			}
+		}
+
+		std::vector<char> infoData;
+		infoData.insert(infoData.end(), contents.begin() + infoStart, contents.end() - 1);
+
+		m_InfoHash = sha1wrapper().getHashFromBytes((unsigned char*)infoData.data(), infoData.size());
 	}
 
 	std::string MetadataFile::GetAnnounceURL()
@@ -60,12 +74,20 @@ namespace TorrentStream
 		size_t totalSize = 0;
 		auto files = info->GetKey<Bencode::List>("files");
 		
-		for (auto& fileObj : files->GetObjects())
+		if (files != nullptr)
 		{
-			assert(fileObj->GetType() == Bencode::ObjectType::DICTIONARY);
+			for (auto& fileObj : files->GetObjects())
+			{
+				assert(fileObj->GetType() == Bencode::ObjectType::DICTIONARY);
 
-			auto file = (Bencode::Dictionary*)fileObj.get();
-			auto fileLength = file->GetKey<Bencode::Integer>("length")->GetValue();
+				auto file = (Bencode::Dictionary*)fileObj.get();
+				auto fileLength = file->GetKey<Bencode::Integer>("length")->GetValue();
+				totalSize += fileLength;
+			}
+		}
+		else
+		{
+			auto fileLength = info->GetKey<Bencode::Integer>("length")->GetValue();
 			totalSize += fileLength;
 		}
 
@@ -76,6 +98,11 @@ namespace TorrentStream
 	{
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
+		if (files == nullptr)
+		{
+			return 1;
+		}
+
 		return files->GetObjects().size();
 	}
 
@@ -99,37 +126,44 @@ namespace TorrentStream
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
 
-		if (index >= files->GetObjects().size())
+		if (files != nullptr)
 		{
-			throw InvalidFileIndex();
-		}
-
-		auto fileObj = files->GetObjects()[index];
-		assert(fileObj->GetType() == Bencode::ObjectType::DICTIONARY);
-		auto file = (Bencode::Dictionary*)fileObj.get();
-		
-		auto path = file->GetKey<Bencode::List>("path");
-
-		std::string filename;
-
-		auto count = path->GetObjects().size();
-
-		for (auto i = 0u; i < count; i++)
-		{
-			auto pathPieceObj = path->GetObjects()[i];
-			assert(pathPieceObj->GetType() == Bencode::ObjectType::BYTESTRING);
-			auto pathPiece = (Bencode::ByteString*)pathPieceObj.get();
-
-			std::string pathPieceString(pathPiece->GetBytes().begin(), pathPiece->GetBytes().end());
-			filename += pathPieceString;
-
-			if (i < count - 1)
+			if (index >= files->GetObjects().size())
 			{
-				filename += "\\";
+				throw InvalidFileIndex();
 			}
-		}
 
-		return filename;
+			auto fileObj = files->GetObjects()[index];
+			assert(fileObj->GetType() == Bencode::ObjectType::DICTIONARY);
+			auto file = (Bencode::Dictionary*)fileObj.get();
+			auto path = file->GetKey<Bencode::List>("path");
+
+			std::string filename;
+			auto count = path->GetObjects().size();
+
+			for (auto i = 0u; i < count; i++)
+			{
+				auto pathPieceObj = path->GetObjects()[i];
+				assert(pathPieceObj->GetType() == Bencode::ObjectType::BYTESTRING);
+				auto pathPiece = (Bencode::ByteString*)pathPieceObj.get();
+
+				std::string pathPieceString(pathPiece->GetBytes().begin(), pathPiece->GetBytes().end());
+				filename += pathPieceString;
+
+				if (i < count - 1)
+				{
+					filename += "\\";
+				}
+			}
+
+			return filename;
+		}
+		else
+		{
+			auto filenameKey = info->GetKey<Bencode::ByteString>("name");
+			std::string filename(filenameKey->GetBytes().begin(), filenameKey->GetBytes().end());
+			return filename;
+		}
 	}
 
 	size_t MetadataFile::GetFileSize(size_t index)
@@ -137,15 +171,23 @@ namespace TorrentStream
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
 
-		if (index >= files->GetObjects().size())
+		if (files != nullptr)
 		{
-			throw InvalidFileIndex();
-		}
+			if (index >= files->GetObjects().size())
+			{
+				throw InvalidFileIndex();
+			}
 
-		auto fileObj = files->GetObjects()[index];
-		assert(fileObj->GetType() == Bencode::ObjectType::DICTIONARY);
-		auto file = (Bencode::Dictionary*)fileObj.get();
-		return file->GetKey<Bencode::Integer>("length")->GetValue();
+			auto fileObj = files->GetObjects()[index];
+			assert(fileObj->GetType() == Bencode::ObjectType::DICTIONARY);
+			auto file = (Bencode::Dictionary*)fileObj.get();
+			return file->GetKey<Bencode::Integer>("length")->GetValue();
+
+		}
+		else
+		{
+			return info->GetKey<Bencode::Integer>("length")->GetValue();
+		}
 	}
 
 	std::pair<size_t, size_t> MetadataFile::GetFileStart(size_t index)
@@ -153,27 +195,34 @@ namespace TorrentStream
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
 
-		if (index >= files->GetObjects().size())
+		if (files != nullptr)
 		{
-			throw InvalidFileIndex();
+			if (index >= files->GetObjects().size())
+			{
+				throw InvalidFileIndex();
+			}
+
+			size_t pieceSize = GetPieceLength();
+
+			std::vector<size_t> fileStarts;
+
+			size_t fileCount = GetFilesCount();
+			auto currentPos = 0u;
+			for (auto i = 0u; i < fileCount; i++)
+			{
+				fileStarts.push_back(currentPos);
+				currentPos += GetFileSize(i);
+			}
+
+			size_t startPiece = fileStarts[index] / pieceSize;
+			size_t pieceOffset = fileStarts[index] % pieceSize;
+
+			return std::make_pair(startPiece, pieceOffset);
 		}
-
-		size_t pieceSize = GetPieceLength();
-
-		std::vector<size_t> fileStarts;
-
-		size_t fileCount = GetFilesCount();
-		auto currentPos = 0u;
-		for (auto i = 0u; i < fileCount; i++)
+		else
 		{
-			fileStarts.push_back(currentPos);
-			currentPos += GetFileSize(i);
+			return std::make_pair(0, 0);
 		}
-		
-		size_t startPiece = fileStarts[index] / pieceSize;
-		size_t pieceOffset = fileStarts[index] % pieceSize;
-
-		return std::make_pair(startPiece, pieceOffset);
 	}
 
 	std::pair<size_t, size_t> MetadataFile::GetFileEnd(size_t index)
@@ -181,27 +230,36 @@ namespace TorrentStream
 		auto info = GetInfoSection();
 		auto files = info->GetKey<Bencode::List>("files");
 
-		if (index >= files->GetObjects().size())
+		if (files != nullptr)
 		{
-			throw InvalidFileIndex();
+			if (index >= files->GetObjects().size())
+			{
+				throw InvalidFileIndex();
+			}
+
+			size_t pieceSize = GetPieceLength();
+
+			std::vector<size_t> fileEnds;
+
+			size_t fileCount = GetFilesCount();
+			auto currentPos = 0u;
+			for (auto i = 0u; i < fileCount; i++)
+			{
+				currentPos += GetFileSize(i);
+				fileEnds.push_back(currentPos);
+			}
+
+			size_t endPiece = fileEnds[index] / pieceSize;
+			size_t pieceOffset = fileEnds[index] % pieceSize;
+
+			return std::make_pair(endPiece, pieceOffset);
 		}
-
-		size_t pieceSize = GetPieceLength();
-
-		std::vector<size_t> fileEnds;
-
-		size_t fileCount = GetFilesCount();
-		auto currentPos = 0u;
-		for (auto i = 0u; i < fileCount; i++)
+		else
 		{
-			currentPos += GetFileSize(i);
-			fileEnds.push_back(currentPos);
+			size_t pieceSize = GetPieceLength();
+			size_t pieceOffset = GetFileSize(0) % pieceSize;
+			return std::make_pair(GetPieceCount() - 1, pieceOffset);
 		}
-
-		size_t endPiece = fileEnds[index] / pieceSize;
-		size_t pieceOffset = fileEnds[index] % pieceSize;
-
-		return std::make_pair(endPiece, pieceOffset);
 	}
 
 	void MetadataFile::PrintInfo()

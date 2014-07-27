@@ -19,7 +19,10 @@ namespace TorrentStream
 			return m_Contents->Encode();
 		}
 
-		std::string GetInfoHash();
+		std::string GetInfoHash()
+		{
+			return m_InfoHash;
+		}
 
 		std::string GetAnnounceURL();
 
@@ -44,7 +47,11 @@ namespace TorrentStream
 		void PrintInfo();
 
 		private:
+		void ExtractInfoHash(const std::vector<char>& contents);
+
 		Bencode::Dictionary* GetInfoSection();
+
+		std::string m_InfoHash;
 
 		std::unique_ptr<Bencode::Dictionary> m_Contents;
 

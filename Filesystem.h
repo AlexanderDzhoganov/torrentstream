@@ -17,10 +17,10 @@ namespace TorrentStream
 		{
 
 			public:
-			File(const std::string& path);
+			File(const std::string& path, size_t size);
 			~File();
 
-			void WriteBytes(const std::vector<char>& bytes);
+			void WriteBytes(size_t offset, const std::vector<char>& bytes);
 		
 			private:
 			FileImpl* m_Impl = nullptr;

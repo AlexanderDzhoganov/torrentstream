@@ -16,6 +16,8 @@
 #include "ASIOPeerMessage.h"
 #include "ASIOPeerComm.h"
 
+#include "Log.h"
+
 #include "Timer.h"
 #include "BandwidthTracker.h"
 #include "Filesystem.h"
@@ -67,7 +69,7 @@ namespace TorrentStream
 			file->endPiece = fileEnd.first;
 			file->endPieceOffset = fileEnd.second;
 
-			file->handle = std::make_unique<Filesystem::File>(m_RootPath + file->filename);
+			file->handle = std::make_unique<Filesystem::File>(m_RootPath + file->filename, file->size);
 			m_Files.push_back(std::move(file));
 		}
 	}
@@ -83,18 +85,118 @@ namespace TorrentStream
 		
 		StartTracker();
 
+		std::set<size_t> pendingPieces;
+		for (auto i = 0u; i < m_PieceCount; i++)
+		{
+			pendingPieces.insert(i);
+		}
+
+		auto nextAnnounceTime = 0.0;
+		auto nextTrackerUpdateTime = 0.0;
+		auto pieceCounter = 0;
+
+		std::string fastestPeer;
+		double fastestPeerTime = 99999999999.0;
+
 		for (;;)
 		{
+			auto complete = 0;
+			for (auto index = 0u; index < m_Pieces.size(); index++)
+			{
+				auto& piece = m_Pieces[index];
+
+				if (piece.IsComplete())
+				{
+					pendingPieces.erase(index);
+					complete++;
+
+					if (!piece.IsWrittenOut())
+					{
+						for (auto&& file : m_Files)
+						{
+							if (file->startPiece > index || file->endPiece < index)
+							{
+								continue;
+							}
+
+							if (index == file->startPiece)
+							{
+								std::vector<char> data;
+								data.insert(data.end(), piece.GetData().begin() + file->startPieceOffset, piece.GetData().end());
+								file->handle->WriteBytes(0, data);
+							}
+							else if (index == file->endPiece)
+							{
+								std::vector<char> data;
+								data.insert(data.end(), piece.GetData().begin(), piece.GetData().begin() + file->endPieceOffset);
+								file->handle->WriteBytes(index * m_PieceLength, data);
+							}
+							else
+							{
+								file->handle->WriteBytes(index * m_PieceLength, piece.GetData());
+							}
+
+							piece.SetWrittenOut(true);
+						}
+					}
+				}
+			}
+
+			if (complete == m_PieceCount)
+			{
+				LOG("complete");
+				break;
+			}
+
+			if (nextAnnounceTime <= Timer::GetTime())
+			{
+				auto newlyComplete = complete - pieceCounter;
+				pieceCounter = complete;
+
+				size_t avgKbps = (newlyComplete * m_PieceLength) / 1024;
+
+				LOG(xs("% / % [% kbps avg.]", complete, m_PieceCount, avgKbps));
+
+				nextAnnounceTime = Timer::GetTime() + 1.0;
+			}
+
+			if (nextTrackerUpdateTime <= Timer::GetTime())
+			{
+			//	UpdateTracker();
+				nextTrackerUpdateTime = Timer::GetTime() + 20.0;
+			}
+
 			for (auto&& peerPair : m_Fresh)
 			{
 				auto&& peer = peerPair.second;
+
+				peer->Update();
+
 				if (peer->GetCommState() == ASIO::PeerCommState::Offline)
 				{
 					peer->Connect();
 				}
-				else if (peer->GetCommState() == ASIO::PeerCommState::Working)
+
+				if (!peer->IsDownloading())
 				{
-					peer->Update();
+					auto& availablePieces = peer->GetAvailablePieces();
+					for (auto it = pendingPieces.begin(); it != pendingPieces.end(); ++it)
+					{
+						if (availablePieces[*it] == true)
+						{
+							peer->StartTimer();
+							peer->StartDownload(*it);
+							pendingPieces.erase(*it);
+							break;
+						}
+					}
+				}
+				else if (peer->IsDownloading() && !peer->IsTainted())
+				{
+					if (peer->GetElapsedTime() > 5.0)
+					{
+						peer->Taint();
+					}
 				}
 			}
 		}
@@ -110,6 +212,18 @@ namespace TorrentStream
 		announce.arguments["event"] = "stopped";
 		HTTP::DoHTTPRequest(announce);
 	}
+
+	struct bin2hex_str
+	{
+		std::ostream& os;
+		bin2hex_str(std::ostream& os) : os(os) {}
+		void operator ()(unsigned char ch)
+		{
+			os << std::hex
+				<< std::setw(2)
+				<< static_cast<int>(ch);
+		}
+	};
 
 	void Client::StartTracker()
 	{
@@ -154,16 +268,20 @@ namespace TorrentStream
 			auto idBytes = ((Bencode::ByteString*)peerDict->GetKey("peer id").get())->GetBytes();
 
 			std::string ip(ipBytes.data(), ipBytes.size());
-			std::string id(idBytes.data(), idBytes.size());
 
-			if (m_Known.find(id) == m_Known.end())
+			std::ostringstream oss;
+			oss << std::setfill('0');
+			std::for_each(ipBytes.begin(), ipBytes.end(), bin2hex_str(oss));
+			auto id = oss.str();
+
+			if (m_Known.find(ip) == m_Known.end())
 			{
-				m_Fresh[id] = std::make_unique<Peer>(ip, port, id, this);
-				m_Known[id] = true;
+				m_Fresh[ip] = std::make_unique<Peer>(ip, port, id, this);
+				m_Known[ip] = true;
 			}
 		}
 	}
-
+	
 	void Client::UpdateTracker()
 	{
 		std::cout << "Updating tracker..";
@@ -177,6 +295,7 @@ namespace TorrentStream
 		announce.arguments["info_hash"] = url_encode((unsigned char*)m_InfoHash.c_str());
 		announce.arguments["peer_id"] = m_PeerID;
 		announce.arguments["port"] = m_Port;
+		announce.arguments["numwant"] = 100;
 
 		auto response = HTTP::DoHTTPRequest(announce);
 
@@ -188,7 +307,20 @@ namespace TorrentStream
 
 		auto parsed = std::make_unique<Bencode::Dictionary>(Bencode::Tokenizer::Tokenize(response.content));
 
+		auto failureReason = parsed->GetKey<Bencode::ByteString>("failure reason");
+		if (failureReason != nullptr)
+		{
+			std::string reason(failureReason->GetBytes().data(), failureReason->GetBytes().size());
+			LOG(xs("Tracker request failed: %", reason));
+			return;
+		}
+
 		auto peersList = (Bencode::List*)(parsed->GetKey("peers").get());
+		if (peersList == nullptr)
+		{
+			return;
+		}
+
 		for (auto& peerObject : peersList->GetObjects())
 		{
 			auto peerDict = (Bencode::Dictionary*)peerObject.get();
@@ -200,10 +332,10 @@ namespace TorrentStream
 			std::string ip(ipBytes.data(), ipBytes.size());
 			std::string id(idBytes.data(), idBytes.size());
 
-			if (m_Known.find(id) == m_Known.end())
+			if (m_Known.find(ip) == m_Known.end())
 			{
-				m_Fresh[id] = std::make_unique<Peer>(ip, port, id, this);
-				m_Known[id] = true;
+				m_Fresh[ip] = std::make_unique<Peer>(ip, port, id, this);
+				m_Known[ip] = true;
 			}
 		}
 

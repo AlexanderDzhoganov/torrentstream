@@ -77,6 +77,7 @@ namespace TorrentStream
 				}
 
 				std::vector<char> m_Payload;
+				std::vector<char> m_Header;
 
 				private:
 				MessageType m_Type = MessageType::KeepAlive;
@@ -161,9 +162,17 @@ namespace TorrentStream
 				{
 				}
 
-				std::vector<char> GetBitfield()
+				std::vector<bool> GetBitfield()
 				{
-					return m_Payload;
+					std::vector<bool> result;
+					result.resize(m_Payload.size() * 8);
+
+					for (auto i = 0u; i < m_Payload.size() * 8; i++)
+					{
+						result[i] = (m_Payload[i / 8] & (1 << (8 - i % 8))) != 0;
+					}
+
+					return result;
 				}
 		
 			};

@@ -31,6 +31,11 @@ namespace TorrentStream
 			return m_PieceLength;
 		}
 
+		size_t GetTotalSize() const
+		{
+			return m_Metadata->GetTotalSize();
+		}
+
 		bool CheckPieceHash(size_t index, const std::vector<char>& expected);
 		/*
 		size_t CountFreshPeers(PeerState state) const

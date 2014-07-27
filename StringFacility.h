@@ -15,12 +15,12 @@ namespace TorrentStream
 		{
 			unsigned char c = data[i];
 
-			// Keep alphanumeric and other accepted characters intact
-			if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+			/*// Keep alphanumeric and other accepted characters intact
+			if (isalnum(c) || c == '~' || c == '!' || c == '*' || c == '(' || c == ')' || c == '\'')
 			{
 				escaped << c;
 				continue;
-			}
+			}*/
 
 			// Any other characters are percent-encoded
 			escaped << '%' << std::setw(2) << int((unsigned char)c);

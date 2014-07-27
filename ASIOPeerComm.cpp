@@ -180,8 +180,7 @@ namespace TorrentStream
 
 			LOG(xs("connected to peer %", m_IP));
 
-			m_State = PeerCommState::Working;
-
+			m_State = PeerCommState::Choked;
 			QueueReceiveMessage();
 		}
 
@@ -203,12 +202,21 @@ namespace TorrentStream
 				return;
 			}
 
-			auto buffer = boost::asio::buffer(message->GetPayload().data(), message->GetPayload().size());
+			uint32_t messageLength = 1 + message->GetPayload().size();
+			messageLength = _byteswap_ulong(messageLength);
+
+			message->m_Header.resize(5);
+			memcpy(message->m_Header.data(), &messageLength, 4);
+			message->m_Header[4] = (char)message->GetType();
+
+			std::vector<boost::asio::const_buffer> buffers;
+			buffers.push_back(boost::asio::buffer(message->m_Header.data(), 5));
+			buffers.push_back(boost::asio::buffer(message->GetPayload().data(), message->GetPayload().size()));
 
 			boost::asio::async_write
 			(
 				*m_Socket,
-				buffer,
+				buffers,
 				m_Strand->wrap(boost::bind(&PeerComm::HandleSendMessage, this, message, boost::asio::placeholders::error))
 			);
 		}
@@ -279,17 +287,19 @@ namespace TorrentStream
 				auto id = (*payload_)[0];
 					
 				std::vector<char> payload;
-				payload.resize(payload_->size() - 1);
-				payload.insert(payload.end(), payload_->begin(), payload_->end());
+				payload.reserve(payload_->size() - 1);
+				payload.insert(payload.end(), payload_->begin() + 1, payload_->end());
 
 				std::unique_lock<std::mutex> _(m_Mutex);
 
 				switch ((Peer::MessageType)id)
 				{
 				case Peer::MessageType::Choke:
+					m_State = PeerCommState::Choked;
 					m_Incoming.push_back(std::make_unique<Peer::Choke>());
 					break;
 				case Peer::MessageType::Unchoke:
+					m_State = PeerCommState::Working;
 					m_Incoming.push_back(std::make_unique<Peer::Unchoke>());
 					break;
 				case Peer::MessageType::Interested:
