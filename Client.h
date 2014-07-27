@@ -51,6 +51,8 @@ namespace TorrentStream
 		std::string m_PeerID;
 		std::string m_Port = "6881";
 
+		std::unique_ptr<HTTP::HTTPServer> m_HTTPServer;
+
 		std::vector<std::unique_ptr<File>> m_Files;
 		size_t m_FileToPlay = 0;
 

@@ -28,6 +28,7 @@
 #include "MetadataFile.h"
 
 #include "HTTP.h"
+#include "HTTPServe.h"
 #include "Piece.h"
 #include "Peer.h"
 #include "File.h"

@@ -30,6 +30,7 @@
 #include "BandwidthTracker.h"
 
 #include "HTTP.h"
+#include "HTTPServe.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
 #include "MetadataFile.h"

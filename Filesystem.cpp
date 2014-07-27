@@ -29,7 +29,7 @@ namespace TorrentStream
 		{
 			m_Impl = new FileImpl();
 
-			m_Impl->fileHandle = ::CreateFile(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+			m_Impl->fileHandle = ::CreateFile(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED | FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING, NULL);
 
 			if (m_Impl->fileHandle == INVALID_HANDLE_VALUE)
 			{

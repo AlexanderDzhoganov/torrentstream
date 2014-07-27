@@ -23,6 +23,7 @@
 #include "Filesystem.h"
 #include "StringFacility.h"
 #include "BinaryString.h"
+#include "HTTPServe.h"
 #include "HTTP.h"
 #include "BencodeTokenizer.h"
 #include "BencodeParser.h"
@@ -39,8 +40,9 @@
 namespace TorrentStream
 {
 
-	Client::Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath) : m_Metadata(metadata), m_RootPath(rootPath)
+	Client::Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath) : m_Metadata(metadata)
 	{
+		m_RootPath = GetCurrentWorkingDirectory();
 		std::cout << "Initializing client" << std::endl;
 
 		m_AnnounceURL = m_Metadata->GetAnnounceURL();
@@ -74,7 +76,7 @@ namespace TorrentStream
 			file->endPiece = fileEnd.first;
 			file->endPieceOffset = fileEnd.second;
 
-			file->handle = std::make_unique<Filesystem::File>(m_RootPath + file->filename, (size_t)file->size);
+			file->handle = std::make_unique<Filesystem::File>(m_RootPath + "\\" + file->filename, (size_t)file->size);
 			m_Files.push_back(std::move(file));
 		}
 	}
@@ -93,7 +95,7 @@ namespace TorrentStream
 
 		bool warmUp = true;
 		std::set<size_t> pendingPieces;
-		for (auto i = 0u; i < 48; i++)
+		for (auto i = 0u; i < 16; i++)
 		{
 			if (i >= m_PieceCount)
 			{
@@ -129,7 +131,7 @@ namespace TorrentStream
 				}
 			}
 
-			if (complete >= 32 && warmUp)
+			if (complete >= 16 && warmUp)
 			{
 				for (auto i = 64; i < m_PieceCount; i++)
 				{
@@ -137,7 +139,7 @@ namespace TorrentStream
 				}
 
 				auto cwd = GetCurrentWorkingDirectory();
-				auto path = xs("%\\test\\%", cwd, m_Files[m_FileToPlay]->filename);
+				auto path = xs("%\\%", cwd, m_Files[m_FileToPlay]->filename);
 				LaunchProcess(VLC_PATH, xs("\"%\" --fullscreen", path));
 				warmUp = false;
 			}
@@ -227,7 +229,7 @@ namespace TorrentStream
 				std::string msg = "";
 				if (warmUp)
 				{
-					msg = xs("Buffering: % %", ((double)complete / 32.0) * 100.0, "%");
+					msg = xs("Buffering: % %", ((double)complete / 16.0) * 100.0, "%");
 				}
 
 				LOG(xs("% [% / %] [% kbps] (o: % c: % i: % d: % ch: % er: %)", 
