@@ -36,6 +36,7 @@
 #include "MetadataFile.h"
 #include "Piece.h"
 #include "Peer.h"
+#include "Tracker.h"
 #include "File.h"
 #include "Client.h"
 
@@ -43,10 +44,10 @@ namespace TorrentStream
 {
 
 	Peer::Peer(const std::string& ip, int port, const std::string& id, Client* client) :
-		m_ID(id), m_Client(client)
+		m_ID(id), m_Client(client), m_IP(ip)
 	{
 		m_Comm = std::make_unique<ASIO::PeerComm>(ip, xs("%", port), client->m_InfoHash, client->m_PeerID);
-		m_HasPieces.resize(m_Client->GetPiecesCount());
+		m_HasPieces.resize((size_t)m_Client->GetPiecesCount());
 	}
 
 	void Peer::Connect()
@@ -84,7 +85,7 @@ namespace TorrentStream
 			{
 				m_Downloading = false;
 
-				auto hash = sha1wrapper().getHashFromBytes((unsigned char*)m_PieceData->GetData().data(), m_Client->GetPieceLength());
+				auto hash = sha1wrapper().getHashFromBytes((unsigned char*)m_PieceData->GetData().data(), (size_t)m_Client->GetPieceLength());
 				std::vector<char> hashBytes(hash.begin(), hash.end());
 
 				if (!m_Client->CheckPieceHash(m_PieceIndex, hashBytes))
@@ -170,7 +171,7 @@ namespace TorrentStream
 
 		m_Downloading = true;
 		m_PieceIndex = pieceIndex;
-		m_PieceData = std::make_unique<Piece>(m_Client->GetPieceLength());
+		m_PieceData = std::make_unique<Piece>((size_t)m_Client->GetPieceLength());
 
 		m_PieceOffsetRequests.clear();
 		m_PieceOffsetRequestsInFlight.clear();

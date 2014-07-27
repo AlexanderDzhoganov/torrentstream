@@ -23,6 +23,11 @@ namespace TorrentStream
 			return m_ID;
 		}
 
+		const std::string& GetIP() const
+		{
+			return m_IP;
+		}
+
 		ASIO::PeerCommState GetCommState() const
 		{
 			return m_Comm->GetState();
@@ -70,6 +75,8 @@ namespace TorrentStream
 		}
 
 		private:
+		std::string m_IP;
+
 		Client* m_Client;
 		std::string m_ID;
 

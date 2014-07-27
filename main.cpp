@@ -31,6 +31,7 @@
 #include "HTTPServe.h"
 #include "Piece.h"
 #include "Peer.h"
+#include "Tracker.h"
 #include "File.h"
 #include "Client.h"
 
@@ -68,7 +69,7 @@ int main(int argc, char** argv)
 	Client client(metadata, "");
 
 	client.Start(selected);
-	client.Stop();
+//	client.Stop();
 	
 	return 0;
 }

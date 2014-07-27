@@ -17,10 +17,6 @@ namespace TorrentStream
 
 		void Stop();
 
-		void StartTracker();
-
-		void UpdateTracker();
-
 		uint64_t GetPiecesCount() const
 		{
 			return m_PieceCount;
@@ -41,10 +37,10 @@ namespace TorrentStream
 		void WriteOutPiece(size_t index);
 
 		private:
-		void CleanUpPeers();
-
 		std::shared_ptr<MetadataFile> m_Metadata;
 		std::string m_RootPath;
+
+		std::unique_ptr<Tracker> m_Tracker;
 
 		std::string m_AnnounceURL;
 		std::string m_InfoHash;
