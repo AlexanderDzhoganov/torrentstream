@@ -32,6 +32,9 @@
 #include "Peer.h"
 #include "Tracker.h"
 #include "File.h"
+#include "PieceSelection.h"
+#include "PeerSelection.h"
+#include "Overwatch.h"
 #include "Client.h"
 
 #include "LaunchProcess.h"
@@ -41,210 +44,75 @@
 namespace TorrentStream
 {
 
-	Client::Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath, size_t fileToPlay) : m_Metadata(metadata)
+	Client::Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath, size_t fileToPlay) :
+		m_Metadata(metadata), m_FileToPlay(fileToPlay), m_RootPath(GetCurrentWorkingDirectory())
 	{
-		m_FileToPlay = fileToPlay;
-		m_RootPath = GetCurrentWorkingDirectory();
-		std::cout << "Initializing client" << std::endl;
+		Initialize();
+	}
+
+	void Client::Initialize()
+	{
+		LOG_F("Initializing");
 
 		m_AnnounceURL = m_Metadata->GetAnnounceURL();
 		m_InfoHash = m_Metadata->GetInfoHash();
 		m_PeerID = xs("-TS1001-%0000000000000000", time(0)).substr(0, 20);
 
 		m_Tracker = std::make_unique<Tracker>(m_AnnounceURL, m_InfoHash, m_PeerID, 6642, this);
+		m_Overwatch = std::make_unique<Overwatch>();
 
-		m_PieceCount = metadata->GetPieceCount();
-		m_PieceLength = metadata->GetPieceLength();
+		m_PieceCount = m_Metadata->GetPieceCount();
+		m_PieceLength = m_Metadata->GetPieceLength();
 
-		std::cout << "Announce: " << m_AnnounceURL << ", info_hash: " << m_InfoHash << ", peer_id: " << m_PeerID << std::endl;
-		std::cout << "Torrent total size: " << (metadata->GetTotalSize() / 1024) / 1024 << " MiB in " << metadata->GetFilesCount() << " files" << std::endl;
-		std::cout << "Piece length: " << m_PieceLength / 1024 << "KiB, " << m_PieceCount << " pieces" << std::endl;
+		LOG_F("announce: %", m_AnnounceURL);
+		LOG_F("info_hash: %", bytesToHex(m_InfoHash.c_str(), 20));
+		LOG_F("total size: % MiB", (m_Metadata->GetTotalSize() / 1024) / 1024);
+		LOG_F("files: %", m_Metadata->GetFilesCount());
+		LOG_F("piece length: %", m_PieceLength);
+		LOG_F("pieces count: %", m_PieceCount);
 
-		for (auto i = 0u; i < metadata->GetPieceCount(); i++)
+		for (auto i = 0u; i < m_Metadata->GetPieceCount(); i++)
 		{
-			m_Pieces.emplace_back((size_t)m_PieceLength, metadata->GetPieceHash(i));
+			m_Pieces.emplace_back((size_t)m_PieceLength, m_Metadata->GetPieceHash(i));
 		}
 
 		auto file = std::make_unique<File>();
-		file->filename = metadata->GetFileName(m_FileToPlay);
-		file->size = metadata->GetFileSize(m_FileToPlay);
-			
-		auto fileStart = metadata->GetFileStart(m_FileToPlay);
+		file->filename = m_Metadata->GetFileName(m_FileToPlay);
+		file->size = m_Metadata->GetFileSize(m_FileToPlay);
+
+		auto fileStart = m_Metadata->GetFileStart(m_FileToPlay);
 		file->startPiece = fileStart.first;
 		file->startPieceOffset = fileStart.second;
 
-		auto fileEnd = metadata->GetFileEnd(m_FileToPlay);
+		auto fileEnd = m_Metadata->GetFileEnd(m_FileToPlay);
 		file->endPiece = fileEnd.first;
 		file->endPieceOffset = fileEnd.second;
 
 		auto filename = split(file->filename, '\\');
 		file->filename = filename[filename.size() - 1];
-		file->handle = std::make_unique<Filesystem::File>(m_RootPath + "\\" + filename[filename.size()-1], (size_t)file->size);
+		file->handle = std::make_unique<Filesystem::File>(m_RootPath + "\\" + filename[filename.size() - 1], (size_t)file->size);
 		m_File = std::move(file);
 	}
 
 	void Client::Start()
 	{
-		std::cout << "Starting client" << std::endl;
-
-		bool warmUp = true;
-
-		std::deque<size_t> pieces;
-		for (auto i = m_File->startPiece; i <= m_File->endPiece; i++)
-		{
-			pieces.push_back(i);
-		}
-
-		std::set<size_t> pendingPieces;
-		for (auto i = 0u; i < 16; i++)
-		{
-			pendingPieces.insert(pieces.front());
-			pieces.pop_front();
-		}
-
-		auto nextAnnounceTime = 0.0;
-
-		auto timeStarted = Timer::GetTime();
-		uint64_t downloadedBytes = 0;
+		auto nextAnnounce = Timer::GetTime() + 2.0;
 
 		for (;;)
 		{
-			auto complete = 0;
-			for (auto index = 0u; index < m_Pieces.size(); index++)
+			auto peer = m_Tracker->FetchPeer();
+			if (peer)
 			{
-				auto& piece = m_Pieces[index];
-				
-				if (piece.IsComplete())
-				{
-					pendingPieces.erase(index);
-					complete++;
-
-					if (!piece.IsWrittenOut())
-					{
-						downloadedBytes += m_PieceLength;
-						WriteOutPiece(index);
-					}
-				}
+				peer->Connect();
+				m_Overwatch->RegisterPeer(std::move(peer));
 			}
 
-			if (complete >= 16 && warmUp)
+			m_Overwatch->Update();
+
+			if (nextAnnounce < Timer::GetTime())
 			{
-				auto cwd = GetCurrentWorkingDirectory();
-				auto path = xs("%\\%", cwd, m_File->filename);
-				LaunchProcess(VLC_PATH, xs("\"%\" --fullscreen", path));
-				warmUp = false;
-			}
-
-			if (pendingPieces.size() < 16 && pieces.size() > 0)
-			{
-				pendingPieces.insert(pieces.front());
-				pieces.pop_front();
-			}
-
-			if (complete == m_PieceCount)
-			{
-				LOG("complete");
-				break;
-			}
-
-			auto offline = 0u;
-			auto downloading = 0u;
-			auto idle = 0u;
-			auto connecting = 0u;
-			auto choked = 0u;
-			auto error = 0u;
-
-			if (m_Fresh.size() < 32)
-			{
-				auto peer = m_Tracker->FetchPeer();
-				if (peer)
-				{
-					auto ip = peer->GetIP();
-					m_Fresh[ip] = std::move(peer);
-				}
-			}
-
-			for (auto it = m_Fresh.begin(); it != m_Fresh.end(); ++it)
-			{
-				auto&& peer = (*it).second;
-
-				peer->Update();
-
-				if (peer->GetCommState() == ASIO::PeerCommState::Offline)
-				{
-					peer->Connect();
-					offline++;
-				}
-				else if (peer->GetCommState() == ASIO::PeerCommState::Connecting)
-				{
-					connecting++;
-				}
-				else if (peer->GetCommState() == ASIO::PeerCommState::Working)
-				{
-					if (peer->IsDownloading())
-					{
-						downloading++;
-					}
-					else
-					{
-						idle++;
-					}
-				}
-				else if (peer->GetCommState() == ASIO::PeerCommState::Choked)
-				{
-					choked++;
-				}
-				else if (peer->GetCommState() == ASIO::PeerCommState::Error)
-				{
-					error++;
-					it = m_Fresh.erase(it);
-					
-					if (it == m_Fresh.end())
-					{
-						break;
-					}
-
-					continue;
-				}
-
-				if (!peer->IsDownloading())
-				{
-					auto& availablePieces = peer->GetAvailablePieces();
-					for (auto it = pendingPieces.begin(); it != pendingPieces.end(); ++it)
-					{
-						if (availablePieces[*it] == true)
-						{
-							peer->StartTimer();
-							peer->StartDownload(*it);
-							pendingPieces.erase(*it);
-							break;
-						}
-					}
-				}
-				else if (peer->IsDownloading() && !peer->IsTainted())
-				{
-					if (peer->GetElapsedTime() > 8.0)
-					{
-						peer->Taint();
-						pendingPieces.insert(peer->GetCurrentPieceIndex());
-					}
-				}
-			}
-
-			if (nextAnnounceTime <= Timer::GetTime())
-			{
-				auto avgBandwidth = downloadedBytes / (Timer::GetTime() - timeStarted);
-
-				std::string msg = "";
-				if (warmUp)
-				{
-					msg = xs("Buffering: % %", ((double)complete / 16.0) * 100.0, "%");
-				}
-
-				LOG(xs("% (%/%) [% kbps] (i: % d: % ch: %) [%]", 
-					msg, complete, m_PieceCount, avgBandwidth / 1024,
-					idle, downloading, choked, pendingPieces.size()));
-				nextAnnounceTime = Timer::GetTime() + 1.0;
+				m_Overwatch->Announce();
+				nextAnnounce = Timer::GetTime() + 2.0;
 			}
 		}
 	}
@@ -283,18 +151,18 @@ namespace TorrentStream
 		if (index == file->startPiece)
 		{
 			std::vector<char> data;
-			data.insert(data.end(), piece.GetData().begin() + file->startPieceOffset, piece.GetData().end());
+			data.insert(data.end(), piece.GetData().begin() + (size_t)file->startPieceOffset, piece.GetData().end());
 			file->handle->WriteBytes(0, data);
 		}
 		else if (index == file->endPiece)
 		{
 			std::vector<char> data;
-			data.insert(data.end(), piece.GetData().begin(), piece.GetData().begin() + file->endPieceOffset);
-			file->handle->WriteBytes(index * m_PieceLength, data);
+			data.insert(data.end(), piece.GetData().begin(), piece.GetData().begin() + (size_t)file->endPieceOffset);
+			file->handle->WriteBytes(index * (size_t)m_PieceLength, data);
 		}
 		else
 		{
-			file->handle->WriteBytes(index * m_PieceLength, piece.GetData());
+			file->handle->WriteBytes(index * (size_t)m_PieceLength, piece.GetData());
 		}
 
 		piece.SetWrittenOut(true);

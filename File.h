@@ -7,12 +7,12 @@ namespace TorrentStream
 	struct File
 	{
 
-		size_t size;
-		size_t startPiece;
-		size_t startPieceOffset;
+		uint64_t size;
+		uint64_t startPiece;
+		uint64_t startPieceOffset;
 
-		size_t endPiece;
-		size_t endPieceOffset;
+		uint64_t endPiece;
+		uint64_t endPieceOffset;
 
 		std::string filename;
 

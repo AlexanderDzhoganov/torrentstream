@@ -38,6 +38,9 @@
 #include "Peer.h"
 #include "Tracker.h"
 #include "File.h"
+#include "PieceSelection.h"
+#include "PeerSelection.h"
+#include "Overwatch.h"
 #include "Client.h"
 
 namespace TorrentStream
@@ -63,25 +66,20 @@ namespace TorrentStream
 
 		if (m_Downloading && m_Comm->GetState() == ASIO::PeerCommState::Working)
 		{
-			while (m_PieceOffsetRequestsInFlight.size() < 10 && m_PieceOffsetRequests.size() > 0)
+			while (m_InFlight.size() < 10 && m_Requests.size() > 0)
 			{
-				auto offset = m_PieceOffsetRequests.front();
-				m_PieceOffsetRequests.pop_front();
+				auto offset = m_Requests.front();
+				m_Requests.pop_front();
 
 				auto size = RequestSize;
-
-				if (m_PieceIndex == m_Client->GetPiecesCount() - 1)
-				{
-				//	size = m_Client->GetTotalSize() - (m_Client->GetTotalSize() / RequestSize) * RequestSize;
-				}
 
 				auto msg = std::make_unique<ASIO::Peer::Request>(m_PieceIndex, offset, size);
 				m_Comm->PushOutgoingMessage(std::move(msg));
 
-				m_PieceOffsetRequestsInFlight.push_back(offset);
+				m_InFlight.push_back(offset);
 			}
 
-			if (m_PieceOffsetRequests.size() == 0 && m_PieceOffsetRequestsInFlight.size() == 0)
+			if (m_Requests.size() == 0 && m_InFlight.size() == 0)
 			{
 				m_Downloading = false;
 
@@ -137,14 +135,14 @@ namespace TorrentStream
 					continue;
 				}
 			
-				if (std::find(m_PieceOffsetRequestsInFlight.begin(), m_PieceOffsetRequestsInFlight.end(), pieceMessage->GetBegin()) == m_PieceOffsetRequestsInFlight.end())
+				if (std::find(m_InFlight.begin(), m_InFlight.end(), pieceMessage->GetBegin()) == m_InFlight.end())
 				{
 					LOG("bad piece offset");
 					continue;
 				}
 
-				std::remove(m_PieceOffsetRequestsInFlight.begin(), m_PieceOffsetRequestsInFlight.end(), pieceMessage->GetBegin());
-				m_PieceOffsetRequestsInFlight.pop_back();
+				std::remove(m_InFlight.begin(), m_InFlight.end(), pieceMessage->GetBegin());
+				m_InFlight.pop_back();
 
 				auto block = pieceMessage->GetBlock();
 
@@ -154,6 +152,7 @@ namespace TorrentStream
 					continue;
 				}
 
+				m_BandwidthTracker.AddSample(block.size());
 				m_PieceData->SubmitData(pieceMessage->GetBegin(), block);
 			}
 			else if (msg->GetType() == MessageType::Unchoke)
@@ -173,11 +172,11 @@ namespace TorrentStream
 		m_PieceIndex = pieceIndex;
 		m_PieceData = std::make_unique<Piece>((size_t)m_Client->GetPieceLength());
 
-		m_PieceOffsetRequests.clear();
-		m_PieceOffsetRequestsInFlight.clear();
+		m_Requests.clear();
+		m_InFlight.clear();
 		for (auto i = 0u; i < m_Client->GetPieceLength(); i += RequestSize)
 		{
-			m_PieceOffsetRequests.push_back(i);
+			m_Requests.push_back(i);
 		}
 
 		auto msg = std::make_unique<ASIO::Peer::Interested>();

@@ -13,20 +13,24 @@ namespace TorrentStream
 
 		for (auto i = 0u; i < 20; i++)
 		{
-			unsigned char c = data[i];
-
-			/*// Keep alphanumeric and other accepted characters intact
-			if (isalnum(c) || c == '~' || c == '!' || c == '*' || c == '(' || c == ')' || c == '\'')
-			{
-				escaped << c;
-				continue;
-			}*/
-
-			// Any other characters are percent-encoded
-			escaped << '%' << std::setw(2) << int((unsigned char)c);
+			escaped << '%' << std::setw(2) << int((unsigned char)data[i]);
 		}
 
 		return escaped.str();
+	}
+
+	inline std::string bytesToHex(const char* data, size_t size)
+	{
+		std::ostringstream hex;
+		hex.fill('0');
+		hex << std::hex;
+
+		for (auto i = 0u; i < 20; i++)
+		{
+			hex << std::setw(2) << int((unsigned char)data[i]);
+		}
+
+		return hex.str();
 	}
 
 	static inline std::vector<std::string> split(const std::string &s, char delim)

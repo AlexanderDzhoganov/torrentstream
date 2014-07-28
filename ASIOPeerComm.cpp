@@ -178,8 +178,6 @@ namespace TorrentStream
 			std::string peerId(buffer->data() + 48, 20);
 			m_PeerID = peerId;
 
-			LOG(xs("connected to peer %", m_IP));
-
 			m_State = PeerCommState::Choked;
 			QueueReceiveMessage();
 		}

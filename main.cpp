@@ -33,6 +33,9 @@
 #include "Peer.h"
 #include "Tracker.h"
 #include "File.h"
+#include "PieceSelection.h"
+#include "PeerSelection.h"
+#include "Overwatch.h"
 #include "Client.h"
 
 using namespace TorrentStream;
@@ -49,7 +52,8 @@ int main(int argc, char** argv)
 	std::ifstream f(argv[1], std::ios::binary);
 	if (!f.is_open())
 	{
-		throw std::exception();
+		std::cout << "failed to open " << argv[1] << std::endl;
+		return 1;
 	}
 
 	std::vector<char> contents((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());

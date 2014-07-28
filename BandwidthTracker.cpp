@@ -6,21 +6,36 @@
 namespace TorrentStream
 {
 
-	void BandwidthTracker::Start()
+	void BandwidthTracker::AddSample(size_t size)
 	{
-		m_StartTime = Timer::GetTime();
-		m_Bytes = 0;
+		auto time = Timer::GetTime();
+		m_Samples.push_back(std::make_pair(time, size));
 	}
 
-	void BandwidthTracker::AddPacket(size_t size)
+	size_t BandwidthTracker::CalculateBandwidth()
 	{
-		m_Bytes += size;
-	}
+		auto time = Timer::GetTime();
+		auto wndStart = time - m_Window;
 
-	size_t BandwidthTracker::GetAverageBandwidth() const
-	{
-		auto elapsed = Timer::GetTime() - m_StartTime;
-		return (size_t)floor((double)m_Bytes / elapsed);
+		auto bytesTotal = 0;
+
+		for (auto it = m_Samples.begin(); it != m_Samples.end(); ++it)
+		{
+			if ((*it).first < wndStart)
+			{
+				it = m_Samples.erase(it);
+				if (it == m_Samples.end())
+				{
+					break;
+				}
+
+				continue;
+			}
+
+			bytesTotal += (*it).second;
+		}
+
+		return (size_t)((double)bytesTotal / m_Window);
 	}
 
 }

@@ -8,15 +8,18 @@ namespace TorrentStream
 	{
 
 		public:
-		void Start();
+		void AddSample(size_t size);
 
-		void AddPacket(size_t size);
+		size_t CalculateBandwidth();
 
-		size_t GetAverageBandwidth() const;
+		void SetWindow(double seconds)
+		{
+			m_Window = seconds;
+		}
 
 		private:
-		double m_StartTime = 0.0;
-		size_t m_Bytes = 0;
+		double m_Window = 20.0;
+		std::vector<std::pair<double, size_t>> m_Samples;
 
 	};
 

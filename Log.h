@@ -2,6 +2,7 @@
 #define __TORRENTSTREAM_LOG_H
 
 #define LOG(S) LogInstance::Instance().LogMessage(S)
+#define LOG_F(S, ...) LogInstance::Instance().LogMessage(xs("%> %", LogInstance::ParseModuleName(__FUNCTION__), xs(S, __VA_ARGS__)))
 
 namespace TorrentStream
 {
@@ -10,11 +11,7 @@ namespace TorrentStream
 	{
 
 		public:
-		LogInstance()
-		{
-			m_Thread = std::make_unique<std::thread>(std::bind(&LogInstance::RunThread, this));
-			m_Thread->detach();
-		}
+		LogInstance();
 
 		static LogInstance& Instance()
 		{
@@ -22,27 +19,15 @@ namespace TorrentStream
 			return instance;
 		}
 
-		void LogMessage(const std::string& msg)
+		void LogMessage(const std::string& msg);
+
+		static std::string ParseModuleName(const std::string& module)
 		{
-			std::unique_lock<std::mutex> _(m_Mutex);
-			m_Queue.push_back(msg);
+			return module.substr(15, module.length() - 15);
 		}
 
 		private:
-		void RunThread()
-		{
-			for(;;)
-			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-				std::unique_lock<std::mutex> _(m_Mutex);
-				while(m_Queue.size() > 0)
-				{
-					std::cout << m_Queue.front() << std::endl;
-					m_Queue.pop_front();
-				}
-			}
-		}
+		void RunThread();
 			
 		std::unique_ptr<std::thread> m_Thread = nullptr;
 	

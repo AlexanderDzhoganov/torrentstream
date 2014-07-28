@@ -1,13 +1,17 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <deque>
 #include <regex>
+#include <mutex>
 #include <thread>
 #include <assert.h>
 #include <sstream>
 #include <unordered_map>
 
 #include <boost/asio.hpp>
+
+#include "Log.h"
 
 #include "ASIOThreadPool.h"
 #include "StringFacility.h"
@@ -84,8 +88,6 @@ namespace TorrentStream
 				port = ipPort[1];
 			}
 
-			std::cout << "Connecting to " << ip << ":" << port << std::endl;
-
 			boost::asio::connect(socket, resolver.resolve({ ip, port }));
 
 			boost::asio::streambuf request;
@@ -110,8 +112,7 @@ namespace TorrentStream
 			boost::asio::read_until(socket, buffer, "\r\n\r\n", error);
 
 			std::string header;
-			while (std::getline(stream, header) && header != "\r")
-				std::cout << header << "\n";
+			while (std::getline(stream, header) && header != "\r");
 
 			while (boost::asio::read(socket, buffer, boost::asio::transfer_at_least(1), error))
 			{

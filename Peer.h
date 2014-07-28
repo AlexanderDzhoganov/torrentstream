@@ -49,49 +49,46 @@ namespace TorrentStream
 			return m_HasPieces;
 		}
 
-		void StartTimer()
-		{
-			m_TimerStart = Timer::GetTime();
-		}
-
-		double GetElapsedTime()
-		{
-			return Timer::GetTime() - m_TimerStart;
-		}
-
 		size_t GetCurrentPieceIndex()
 		{
 			return m_PieceIndex;
 		}
 
-		void Taint()
+		bool IsSeed()
 		{
-			m_Tainted = true;
+			for (auto&& piece : m_HasPieces)
+			{
+				if (!piece)
+				{
+					return false;
+				}
+			}
+
+			return true;
 		}
 
-		bool IsTainted()
+		size_t GetAverageBandwidth()
 		{
-			return m_Tainted;
+			return m_BandwidthTracker.CalculateBandwidth();
 		}
 
 		private:
+		BandwidthTracker m_BandwidthTracker;
+
 		std::string m_IP;
 
 		Client* m_Client;
 		std::string m_ID;
 
-		bool m_Tainted = false;
-
-		double m_TimerStart = 0.0;
-
 		bool m_Downloading = false;
 		size_t m_PieceIndex = 0;
-		std::deque<size_t> m_PieceOffsetRequests;
-		std::deque<size_t> m_PieceOffsetRequestsInFlight;
+
+		std::deque<size_t> m_Requests;
+		std::deque<size_t> m_InFlight;
+
 		std::unique_ptr<Piece> m_PieceData = nullptr;
 
 		std::unique_ptr<ASIO::PeerComm> m_Comm = nullptr;
-
 		std::vector<bool> m_HasPieces;
 
 	};

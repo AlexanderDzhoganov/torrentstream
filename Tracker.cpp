@@ -88,10 +88,7 @@ namespace TorrentStream
 	void Tracker::Update(TrackerEvent event)
 	{
 		auto announce = HTTP::ParseURL(m_AnnounceURL);
-
-		std::cout << "Tracker: " << announce.authority << std::endl;
-		std::cout << "Peer ID: " << m_PeerID << std::endl;
-		std::cout << "Port: " << m_Port << std::endl;
+		LOG_F("Querying \"%\"", announce.authority);
 
 		announce.arguments["info_hash"] = url_encode((unsigned char*)m_InfoHash.c_str());
 		announce.arguments["peer_id"] = m_PeerID;
@@ -114,7 +111,7 @@ namespace TorrentStream
 
 		if (response.statusCode != 200)
 		{
-			std::cout << xs("Client::Start(): failed, http response: %", response.statusCode) << std::endl;
+			LOG_F("Tracker request failed (HTTP error): %", response.statusCode);
 			return;
 		}
 
@@ -125,10 +122,11 @@ namespace TorrentStream
 			auto reason = parsed->GetKey<Bencode::ByteString>("failure reason");
 			auto bytes = reason->GetBytes();
 			std::string reasonString(bytes.begin(), bytes.end());
-
-			std::cout << "tracker request failed: " << reasonString << std::endl;
+			LOG_F("Tracker request failed (tracker error): %", reasonString);
 			return;
 		}
+
+		auto peersCount = 0u;
 
 		auto peersList = (Bencode::List*)(parsed->GetKey("peers").get());
 		for (auto& peerObject : peersList->GetObjects())
@@ -148,10 +146,13 @@ namespace TorrentStream
 
 			if (m_Known.find(ip) == m_Known.end())
 			{
+				peersCount++;
 				m_Peers.push_back(std::make_unique<Peer>(ip, (int)port, id, m_Client));
 				m_Known.insert(ip);
 			}
 		}
+
+		LOG_F("Request successful, got % peers", peersCount);
 	}
 
 }

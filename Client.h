@@ -37,10 +37,13 @@ namespace TorrentStream
 		void WriteOutPiece(size_t index);
 
 		private:
+		void Initialize();
+
 		std::shared_ptr<MetadataFile> m_Metadata;
 		std::string m_RootPath;
 
 		std::unique_ptr<Tracker> m_Tracker;
+		std::unique_ptr<Overwatch> m_Overwatch;
 
 		std::string m_AnnounceURL;
 		std::string m_InfoHash;
@@ -50,18 +53,11 @@ namespace TorrentStream
 		std::unique_ptr<HTTP::HTTPServer> m_HTTPServer;
 
 		std::unique_ptr<File> m_File;
-		//std::vector<std::unique_ptr<File>> m_Files;
 		size_t m_FileToPlay = 0;
 
 		std::vector<Piece> m_Pieces;
 		uint64_t m_PieceLength = 0;
 		uint64_t m_PieceCount = 0;
-
-		std::unordered_map<std::string, bool> m_Known;
-		std::unordered_map<std::string, std::unique_ptr<Peer>> m_Fresh;
-		std::unordered_map<std::string, std::unique_ptr<Peer>> m_WarmUp;
-		std::unordered_map<std::string, std::unique_ptr<Peer>> m_Cold;
-		std::unordered_map<std::string, std::unique_ptr<Peer>> m_Hot;
 
 	};
 
