@@ -12,7 +12,16 @@ namespace TorrentStream
 		public:
 		static const size_t RequestSize = 16 * 1024;
 
-		Peer(const std::string& ip, int port, const std::string& id, Client* client);
+		Peer
+		(
+			const std::string& ip,
+			int port,
+			const std::string& id,
+			size_t pieceCount,
+			size_t pieceLength,
+			const std::string& infoHash,
+			const std::string& selfId
+		);
 
 		~Peer()
 		{
@@ -76,12 +85,13 @@ namespace TorrentStream
 		BandwidthTracker m_BandwidthTracker;
 
 		std::string m_IP;
-
-		Client* m_Client;
 		std::string m_ID;
 
 		bool m_Downloading = false;
 		size_t m_PieceIndex = 0;
+
+		size_t m_PieceCount = 0;
+		size_t m_PieceLength = 0;
 
 		std::deque<size_t> m_Requests;
 		std::deque<size_t> m_InFlight;

@@ -46,11 +46,20 @@
 namespace TorrentStream
 {
 
-	Peer::Peer(const std::string& ip, int port, const std::string& id, Client* client) :
-		m_ID(id), m_Client(client), m_IP(ip)
+	Peer::Peer
+	(
+		const std::string& ip,
+		int port,
+		const std::string& id,
+		size_t pieceCount,
+		size_t pieceLength,
+		const std::string& infoHash,
+		const std::string& selfId
+	) :
+		m_ID(id), m_IP(ip), m_PieceCount(pieceCount), m_PieceLength(pieceLength)
 	{
-		m_Comm = std::make_unique<ASIO::PeerComm>(ip, xs("%", port), client->m_InfoHash, client->m_PeerID);
-		m_HasPieces.resize((size_t)m_Client->GetPiecesCount());
+		m_Comm = std::make_unique<ASIO::PeerComm>(ip, xs("%", port), infoHash, selfId);
+		m_HasPieces.resize(m_PieceCount);
 	}
 
 	void Peer::Connect()
@@ -82,24 +91,6 @@ namespace TorrentStream
 			if (m_Requests.size() == 0 && m_InFlight.size() == 0)
 			{
 				m_Downloading = false;
-
-				auto hash = sha1wrapper().getHashFromBytes((unsigned char*)m_PieceData->GetData().data(), (size_t)m_Client->GetPieceLength());
-				std::vector<char> hashBytes(hash.begin(), hash.end());
-
-				if (!m_Client->CheckPieceHash(m_PieceIndex, hashBytes))
-				{
-					LOG("bad hash");
-				}
-				else
-				{
-					if (!m_Client->m_Pieces[m_PieceIndex].IsComplete())
-					{
-						m_Client->m_Pieces[m_PieceIndex].SubmitData(0, m_PieceData->GetData());
-						m_Client->m_Pieces[m_PieceIndex].SetComplete(true);
-					}
-					
-					m_PieceData = nullptr;
-				}
 			}
 		}
 
@@ -122,7 +113,7 @@ namespace TorrentStream
 				auto haveMessage = (ASIO::Peer::Have*)msg.get();
 				auto index = haveMessage->GetIndex();
 
-				assert(index >= 0 && index < m_Client->GetPiecesCount());
+				assert(index >= 0 && index < m_PieceCount);
 				m_HasPieces[index] = true;
 			}
 			else if (msg->GetType() == MessageType::Piece)
@@ -146,7 +137,7 @@ namespace TorrentStream
 
 				auto block = pieceMessage->GetBlock();
 
-				if (block.size() != RequestSize && m_PieceIndex != m_Client->GetPiecesCount() - 1)
+				if (block.size() != RequestSize)
 				{
 					LOG("bad piece size");
 					continue;
@@ -170,11 +161,11 @@ namespace TorrentStream
 
 		m_Downloading = true;
 		m_PieceIndex = pieceIndex;
-		m_PieceData = std::make_unique<Piece>((size_t)m_Client->GetPieceLength());
+		m_PieceData = std::make_unique<Piece>(m_PieceLength);
 
 		m_Requests.clear();
 		m_InFlight.clear();
-		for (auto i = 0u; i < m_Client->GetPieceLength(); i += RequestSize)
+		for (auto i = 0u; i < m_PieceLength; i += RequestSize)
 		{
 			m_Requests.push_back(i);
 		}
