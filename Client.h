@@ -9,11 +9,11 @@ namespace TorrentStream
 		friend class Peer;
 
 		public:
-		Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath);
+		Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath, size_t fileToPlay);
 
 		~Client() {}
 
-		void Start(size_t fileToPlay);
+		void Start();
 
 		void Stop();
 
@@ -49,7 +49,8 @@ namespace TorrentStream
 
 		std::unique_ptr<HTTP::HTTPServer> m_HTTPServer;
 
-		std::vector<std::unique_ptr<File>> m_Files;
+		std::unique_ptr<File> m_File;
+		//std::vector<std::unique_ptr<File>> m_Files;
 		size_t m_FileToPlay = 0;
 
 		std::vector<Piece> m_Pieces;

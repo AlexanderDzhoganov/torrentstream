@@ -52,11 +52,12 @@ namespace TorrentStream
 		m_AnnounceURL(announceURL), m_InfoHash(infoHash), m_PeerID(peerID), m_Port(port), m_Client(client)
 	{
 		m_Thread = std::make_unique<std::thread>(std::bind(&Tracker::RunThread, this));
+		m_Thread->detach();
 	}
 
 	Tracker::~Tracker()
 	{
-		Update(TrackerEvent::Stopped);
+		//Update(TrackerEvent::Stopped);
 	}
 
 	void Tracker::RunThread()

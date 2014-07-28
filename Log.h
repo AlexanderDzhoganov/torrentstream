@@ -13,6 +13,7 @@ namespace TorrentStream
 		LogInstance()
 		{
 			m_Thread = std::make_unique<std::thread>(std::bind(&LogInstance::RunThread, this));
+			m_Thread->detach();
 		}
 
 		static LogInstance& Instance()

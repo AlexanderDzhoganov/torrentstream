@@ -47,7 +47,8 @@ namespace TorrentStream
 
 		void File::WriteBytes(size_t offset, const std::vector<char>& bytes)
 		{
-			m_Impl->handle->write_some_at(offset, boost::asio::buffer(bytes.data(), bytes.size()));
+			boost::system::error_code ec;
+			boost::asio::write_at(*m_Impl->handle, offset, boost::asio::buffer(bytes.data(), bytes.size()), ec);
 			FlushFileBuffers(m_Impl->fileHandle);
 		}
 

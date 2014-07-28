@@ -66,9 +66,9 @@ int main(int argc, char** argv)
 	int selected = 0;
 	std::cin >> selected;
 
-	Client client(metadata, "");
+	Client client(metadata, "", selected);
 
-	client.Start(selected);
+	client.Start();
 //	client.Stop();
 	
 	return 0;

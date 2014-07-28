@@ -41,8 +41,9 @@
 namespace TorrentStream
 {
 
-	Client::Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath) : m_Metadata(metadata)
+	Client::Client(const std::shared_ptr<MetadataFile>& metadata, const std::string& rootPath, size_t fileToPlay) : m_Metadata(metadata)
 	{
+		m_FileToPlay = fileToPlay;
 		m_RootPath = GetCurrentWorkingDirectory();
 		std::cout << "Initializing client" << std::endl;
 
@@ -64,35 +65,32 @@ namespace TorrentStream
 			m_Pieces.emplace_back((size_t)m_PieceLength, metadata->GetPieceHash(i));
 		}
 
-		for (auto i = 0u; i < metadata->GetFilesCount(); i++)
-		{
-			auto file = std::make_unique<File>();
-			file->filename = metadata->GetFileName(i);
+		auto file = std::make_unique<File>();
+		file->filename = metadata->GetFileName(m_FileToPlay);
+		file->size = metadata->GetFileSize(m_FileToPlay);
 			
-			file->size = metadata->GetFileSize(i);
-			
-			auto fileStart = metadata->GetFileStart(i);
-			file->startPiece = fileStart.first;
-			file->startPieceOffset = fileStart.second;
+		auto fileStart = metadata->GetFileStart(m_FileToPlay);
+		file->startPiece = fileStart.first;
+		file->startPieceOffset = fileStart.second;
 
-			auto fileEnd = metadata->GetFileEnd(i);
-			file->endPiece = fileEnd.first;
-			file->endPieceOffset = fileEnd.second;
+		auto fileEnd = metadata->GetFileEnd(m_FileToPlay);
+		file->endPiece = fileEnd.first;
+		file->endPieceOffset = fileEnd.second;
 
-			file->handle = std::make_unique<Filesystem::File>(m_RootPath + "\\" + file->filename, (size_t)file->size);
-			m_Files.push_back(std::move(file));
-		}
+		auto filename = split(file->filename, '\\');
+		file->filename = filename[filename.size() - 1];
+		file->handle = std::make_unique<Filesystem::File>(m_RootPath + "\\" + filename[filename.size()-1], (size_t)file->size);
+		m_File = std::move(file);
 	}
 
-	void Client::Start(size_t fileToPlay)
+	void Client::Start()
 	{
-		m_FileToPlay = fileToPlay;
 		std::cout << "Starting client" << std::endl;
 
 		bool warmUp = true;
 
 		std::deque<size_t> pieces;
-		for (auto i = 0u; i < m_PieceCount; i++)
+		for (auto i = m_File->startPiece; i <= m_File->endPiece; i++)
 		{
 			pieces.push_back(i);
 		}
@@ -132,7 +130,7 @@ namespace TorrentStream
 			if (complete >= 16 && warmUp)
 			{
 				auto cwd = GetCurrentWorkingDirectory();
-				auto path = xs("%\\%", cwd, m_Files[m_FileToPlay]->filename);
+				auto path = xs("%\\%", cwd, m_File->filename);
 				LaunchProcess(VLC_PATH, xs("\"%\" --fullscreen", path));
 				warmUp = false;
 			}
@@ -274,33 +272,32 @@ namespace TorrentStream
 	void Client::WriteOutPiece(size_t index)
 	{
 		auto& piece = m_Pieces[index];
+		auto& file = m_File;
 
-		for (auto&& file : m_Files)
+		if (file->startPiece > index || file->endPiece < index)
 		{
-			if (file->startPiece > index || file->endPiece < index)
-			{
-				continue;
-			}
-
-			if (index == file->startPiece)
-			{
-				std::vector<char> data;
-				data.insert(data.end(), piece.GetData().begin() + file->startPieceOffset, piece.GetData().end());
-				file->handle->WriteBytes(0, data);
-			}
-			else if (index == file->endPiece)
-			{
-				std::vector<char> data;
-				data.insert(data.end(), piece.GetData().begin(), piece.GetData().begin() + file->endPieceOffset);
-				file->handle->WriteBytes(index * m_PieceLength, data);
-			}
-			else
-			{
-				file->handle->WriteBytes(index * m_PieceLength, piece.GetData());
-			}
-
 			piece.SetWrittenOut(true);
+			return;
 		}
+
+		if (index == file->startPiece)
+		{
+			std::vector<char> data;
+			data.insert(data.end(), piece.GetData().begin() + file->startPieceOffset, piece.GetData().end());
+			file->handle->WriteBytes(0, data);
+		}
+		else if (index == file->endPiece)
+		{
+			std::vector<char> data;
+			data.insert(data.end(), piece.GetData().begin(), piece.GetData().begin() + file->endPieceOffset);
+			file->handle->WriteBytes(index * m_PieceLength, data);
+		}
+		else
+		{
+			file->handle->WriteBytes(index * m_PieceLength, piece.GetData());
+		}
+
+		piece.SetWrittenOut(true);
 	}
 
 }
