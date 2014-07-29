@@ -34,6 +34,12 @@ namespace TorrentStream
 
 		bool CheckPieceHash(size_t index, const std::vector<char>& expected);
 		
+		void SubmitPiece(size_t index, std::unique_ptr<Piece> piece)
+		{
+			m_Pieces[index].SubmitData(0, piece->GetData());
+			WriteOutPiece(index);
+		}
+
 		void WriteOutPiece(size_t index);
 
 		private:

@@ -32,6 +32,10 @@
 #include "Peer.h"
 #include "File.h"
 #include "Tracker.h"
+#include "PeerSelection.h"
+#include "PieceSelection.h"
+#include "Overwatch.h"
+#include "Client.h"
 
 namespace TorrentStream
 {
@@ -147,7 +151,7 @@ namespace TorrentStream
 			if (m_Known.find(ip) == m_Known.end())
 			{
 				peersCount++;
-				m_Peers.push_back(std::make_unique<Peer>(ip, (int)port, id, m_Client));
+				m_Peers.push_back(std::make_unique<Peer>(ip, (int)port, id, m_Client->GetPiecesCount(), m_Client->GetPieceLength(), m_InfoHash, m_PeerID));
 				m_Known.insert(ip);
 			}
 		}

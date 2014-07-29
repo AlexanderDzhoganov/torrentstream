@@ -46,6 +46,8 @@ namespace TorrentStream
 			}
 
 			memcpy(m_Data->data() + offset, data.data(), data.size());
+			m_SubmittedBytes += data.size();
+			m_SubmittedOffsets.push_back(offset);
 		}
 
 		const std::vector<char>& GetHash() const
@@ -89,6 +91,8 @@ namespace TorrentStream
 
 		private:
 		size_t m_Size = 0;
+		size_t m_SubmittedBytes = 0;
+		std::vector<size_t> m_SubmittedOffsets;
 		std::vector<char> m_Hash;
 
 		std::unique_ptr<std::vector<char>> m_Data;

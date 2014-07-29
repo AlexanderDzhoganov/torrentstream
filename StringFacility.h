@@ -5,6 +5,7 @@
 
 namespace TorrentStream
 {
+
 	inline std::string url_encode(unsigned char* data)
 	{
 		std::ostringstream escaped;

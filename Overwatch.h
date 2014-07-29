@@ -4,11 +4,13 @@
 namespace TorrentStream
 {
 
+	class Client;
+
 	class Overwatch
 	{
 
 		public:
-		Overwatch();
+		Overwatch(size_t pieceCount, size_t pieceLength, Client* client, size_t pieceStart, size_t pieceEnd);
 
 		void Update();
 
@@ -19,6 +21,11 @@ namespace TorrentStream
 		private:
 		std::unique_ptr<IPeerSelectionStrategy> m_PeerStrategy;
 		std::unique_ptr<IPieceSelectionStrategy> m_PieceStrategy;
+
+		std::vector<std::tuple<Peer*, size_t, double>> m_Downloads;
+		size_t m_MaxConcurrentDownloads = 16;
+
+		Client* m_Client = nullptr;
 
 	};
 

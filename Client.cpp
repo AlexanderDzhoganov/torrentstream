@@ -59,7 +59,6 @@ namespace TorrentStream
 		m_PeerID = xs("-TS1001-%0000000000000000", time(0)).substr(0, 20);
 
 		m_Tracker = std::make_unique<Tracker>(m_AnnounceURL, m_InfoHash, m_PeerID, 6642, this);
-		m_Overwatch = std::make_unique<Overwatch>();
 
 		m_PieceCount = m_Metadata->GetPieceCount();
 		m_PieceLength = m_Metadata->GetPieceLength();
@@ -92,6 +91,8 @@ namespace TorrentStream
 		file->filename = filename[filename.size() - 1];
 		file->handle = std::make_unique<Filesystem::File>(m_RootPath + "\\" + filename[filename.size() - 1], (size_t)file->size);
 		m_File = std::move(file);
+
+		m_Overwatch = std::make_unique<Overwatch>(m_PieceCount, m_PieceLength, this, m_File->startPiece, m_File->endPiece);
 	}
 
 	void Client::Start()

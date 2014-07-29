@@ -91,6 +91,7 @@ namespace TorrentStream
 			if (m_Requests.size() == 0 && m_InFlight.size() == 0)
 			{
 				m_Downloading = false;
+				m_Finished = true;
 			}
 		}
 
@@ -160,6 +161,7 @@ namespace TorrentStream
 		}
 
 		m_Downloading = true;
+		m_Finished = false;
 		m_PieceIndex = pieceIndex;
 		m_PieceData = std::make_unique<Piece>(m_PieceLength);
 

@@ -51,6 +51,28 @@ namespace TorrentStream
 			return m_Downloading;
 		}
 
+		bool IsFinished()
+		{
+			return m_Finished;
+		}
+
+		bool IsTainted()
+		{
+			return m_Tainted;
+		}
+
+		void Taint()
+		{
+			m_Tainted = true;
+		}
+
+		std::unique_ptr<Piece> GetPieceData()
+		{
+			auto data = std::move(m_PieceData);
+			m_PieceData = nullptr;
+			return data;
+		}
+
 		void StartDownload(size_t pieceIndex);
 
 		const std::vector<bool>& GetAvailablePieces()
@@ -87,7 +109,10 @@ namespace TorrentStream
 		std::string m_IP;
 		std::string m_ID;
 
+		bool m_Tainted = false;
+
 		bool m_Downloading = false;
+		bool m_Finished = false;
 		size_t m_PieceIndex = 0;
 
 		size_t m_PieceCount = 0;

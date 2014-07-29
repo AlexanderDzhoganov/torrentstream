@@ -28,8 +28,22 @@ namespace TorrentStream
 		std::vector<std::unique_ptr<Peer>> m_Peers;
 
 	};
+	
+	class PeerSelectionStrategyBestBandwidth : public IPeerSelectionStrategy
+	{
 
-	typedef PeerSelectionStrategyRandom DefaultPeerSelectionStrategy;
+		public:
+		void Update();
+		void RegisterPeer(std::unique_ptr<Peer> peer);
+		Peer* Select(size_t pieceIndex);
+		size_t GetPeersCount();
+
+		private:
+		std::vector<std::unique_ptr<Peer>> m_Peers;
+
+	};
+
+	typedef PeerSelectionStrategyBestBandwidth DefaultPeerSelectionStrategy;
 
 }
 
