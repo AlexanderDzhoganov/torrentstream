@@ -20,9 +20,14 @@ namespace TorrentStream
 			File(const std::string& path, size_t size);
 			~File();
 
-			void WriteBytes(size_t offset, const std::vector<char>& bytes);
-		
+			void Submit(size_t offset, const std::vector<char>& bytes);
+
+			void Close();
+
 			private:
+			void RunThread();
+			void WriteBytes(size_t offset, const std::vector<char>& bytes);
+
 			FileImpl* m_Impl = nullptr;
 
 		};

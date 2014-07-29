@@ -153,17 +153,17 @@ namespace TorrentStream
 		{
 			std::vector<char> data;
 			data.insert(data.end(), piece.GetData().begin() + (size_t)file->startPieceOffset, piece.GetData().end());
-			file->handle->WriteBytes(0, data);
+			file->handle->Submit(0, data);
 		}
 		else if (index == file->endPiece)
 		{
 			std::vector<char> data;
 			data.insert(data.end(), piece.GetData().begin(), piece.GetData().begin() + (size_t)file->endPieceOffset);
-			file->handle->WriteBytes(index * (size_t)m_PieceLength, data);
+			file->handle->Submit(index * (size_t)m_PieceLength, data);
 		}
 		else
 		{
-			file->handle->WriteBytes(index * (size_t)m_PieceLength, piece.GetData());
+			file->handle->Submit(index * (size_t)m_PieceLength, piece.GetData());
 		}
 
 		piece.SetWrittenOut(true);

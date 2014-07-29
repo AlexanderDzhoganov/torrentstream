@@ -23,7 +23,7 @@ namespace TorrentStream
 		std::unique_ptr<IPieceSelectionStrategy> m_PieceStrategy;
 
 		std::vector<std::tuple<Peer*, size_t, double>> m_Downloads;
-		size_t m_MaxConcurrentDownloads = 16;
+		size_t m_MaxConcurrentDownloads = 4;
 
 		Client* m_Client = nullptr;
 

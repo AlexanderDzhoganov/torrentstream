@@ -57,7 +57,6 @@ int main(int argc, char** argv)
 	}
 
 	std::vector<char> contents((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-
 	auto metadata = std::make_shared<MetadataFile>(contents);
 
 	for (auto i = 0u; i < metadata->GetFilesCount(); i++)

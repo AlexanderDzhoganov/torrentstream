@@ -21,7 +21,7 @@
 
 #include "Log.h"
 
-#include "hashlib2plus/hashlibpp.h"
+#include "extern/hashlib2plus/hashlibpp.h"
 
 #include "Timer.h"
 #include "BandwidthTracker.h"
@@ -115,8 +115,9 @@ namespace TorrentStream
 				continue;
 			}
 
-			if (peer->GetCommState() == ASIO::PeerCommState::Error || time > 8.0)
+			if (peer->GetCommState() == ASIO::PeerCommState::Error)
 			{
+//				peer->StopDownload();
 				m_PieceStrategy->Return(index);
 
 				it = m_Downloads.erase(it);

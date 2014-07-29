@@ -1,3 +1,5 @@
+#include <Windows.h>
+
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -34,6 +36,7 @@ namespace TorrentStream
 			std::unique_lock<std::mutex> _(m_Mutex);
 			while (m_Queue.size() > 0)
 			{
+				auto msg = m_Queue.front();
 				std::cout << m_Queue.front() << std::endl;
 				m_Queue.pop_front();
 			}
